@@ -28,6 +28,12 @@ Format tanggal: `YYYY-MM-DD`. Jangan hapus baris lama — tambahkan baris baru d
 | 2026-11-11 | BERTopic | ditunda | Tidak masuk metrik kelulusan; waktu lebih baik untuk evaluasi | — |
 | 2026-11-11 | X/Twitter | dilewati | Akses mahal dan tidak pasti; Reddit + YouTube cukup sebagai bukti metode teks | — |
 
+| 2026-11-12 | Sumber teks Reddit: Arctic Shift, bukan API resmi | `src/scrape/arctic_shift_client.py` | Reddit API resmi butuh client_id/secret yang persetujuannya melewati tenggat 1 minggu. Diuji: `.json` balas 403, `old.reddit.com` balas halaman palsu, RSS hanya berisi post tanpa komentar dan ter-throttle ~1 request/30s. Pushshift 403, PullPush 526 (SSL). Arctic Shift: tanpa kredensial, cakupan musim 2025/26 terverifikasi, lag arsip 0 hari | Rafif |
+| 2026-11-12 | Pesan "Timeout. Maybe slow down a bit" = rate limit, bukan timeout jaringan | jeda adaptif 8→240s, TIDAK menaikkan timeout socket | Terukur: error muncul dengan latensi 1-4 detik, dan query identik berhasil setelah jeda. Kalau dipercaya sebagai timeout jaringan, klien akan menaikkan timeout dan makin lambat tanpa memperbaiki apa pun | Rafif |
+| 2026-11-12 | HTTP 422 RETRYABLE, HTTP 400 TIDAK | `NON_RETRYABLE_STATUS = {400,401,403,404}` | Arctic Shift mengirim HTTP 422 berisi pesan rate limit. Sempat salah klasifikasi sebagai error permanen sehingga run berhenti padahal akan berhasil. HTTP 400 ('aggregate is required') memang permanen dan harus gagal cepat agar tidak menghabiskan budget rate limit | Rafif |
+| 2026-11-12 | Hitung thread pakai `posts/search/aggregate`, bukan paging | 1 request = 1 hitungan pasti | `posts/search` membatasi 100 hasil sehingga semua pengukuran awal CAPPED dan angka sebenarnya tidak diketahui. `aggregate=subreddit` mengembalikan count sebenarnya dalam 1 request: Haaland r/soccer 602 (bukan 100), r/MCFC 728 | Rafif |
+| 2026-11-12 | `/api/comments/tree` TIDAK terpotong | 1 request per thread, limit=1000 | Diuji 2 thread: 982 komentar -> 770 nested (750 berisi); 543 -> 558 nested (101%). Selisih di thread pertama karena 212 komentar terhapus sebelum terarsip, bukan karena pemotongan. Ini yang membuat strategi post-first layak | Rafif |
+
 ## Perubahan setelah melihat data
 
 | Tanggal | Ambang | Dari | Ke | Alasan (wajib, dengan angka) |
