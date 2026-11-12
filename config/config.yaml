@@ -163,12 +163,34 @@ text_sources:
     max_texts_per_player: 40
     include_transcript: true
     min_words: 8
+    rate_limit_seconds: 1.0     # lantai keras, sama seperti jalur Reddit
+    # Handle dan ID diverifikasi 2026-11-12 lewat `channels.list?forHandle=`.
+    # Wajib disimpan di sini, bukan di cache `data/raw/`, supaya anggota lain
+    # bisa mereproduksi run dari clone bersih (data/raw gitignored).
+    # Dua nama di bawah sengaja berbeda dari tebakan awal:
+    #   @TifoFootball tidak ada; channelnya sekarang @TIFO (di bawah The Athletic)
+    #   @SkySportsPL = kanal penggemar "TRS SkySports", bukan Sky Sports
     channels:
     - name: The Overlap
+      handle: '@TheOverlap'
+      channel_id: UCjXIw1GlwaY1IzpW_jN9iCQ
+      uploads: UUjXIw1GlwaY1IzpW_jN9iCQ
     - name: Tifo Football
+      handle: '@TIFO'
+      channel_id: UCGYYNGmyhZ_kwBF_lqqXdAQ
+      uploads: UUGYYNGmyhZ_kwBF_lqqXdAQ
     - name: The Athletic FC
+      handle: '@TheAthleticFC'
+      channel_id: UC6ZMmQaL9wZYo4iLw8n8xiA
+      uploads: UU6ZMmQaL9wZYo4iLw8n8xiA
     - name: Sky Sports Premier League
+      handle: '@SkySportsPremierLeague'
+      channel_id: UCNAf1k0yIjyGu3k9BwAg3lg
+      uploads: UUNAf1k0yIjyGu3k9BwAg3lg
     - name: Premier League
+      handle: '@premierleague'
+      channel_id: UCG5qGWdu8nIRZqJ_GgDwQ-w
+      uploads: UUG5qGWdu8nIRZqJ_GgDwQ-w
   article:
     enabled: false
     min_name_mentions: 3
