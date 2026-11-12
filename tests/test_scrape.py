@@ -1,0 +1,445 @@
+"""Stage B tests: alias matching, date window, sentence split, dedupe, relevance scoring.
+
+Run with `make test` (unittest, so no extra dependency is required).
+"""
+
+from __future__ import annotations
+
+import csv
+import sys
+import tempfile
+import unittest
+from dataclasses import asdict
+from datetime import datetime, timezone
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from src.scrape import relevance, subreddits  # noqa: E402
+from src.scrape.aliases import AliasIndex, normalize  # noqa: E402
+from src.scrape.players import Player, club_needles, pilot_subset  # noqa: E402
+from src.scrape.reddit import (  # noqa: E402
+    epoch_window,
+    extract_for_player,
+    search_query,
+    season_bounds,
+    subreddits_for,
+    unique_raw_dir,
+)
+from src.scrape.reddit_client import keep_comment  # noqa: E402
+from src.scrape.textops import (  # noqa: E402
+    clean_text,
+    is_bot_like,
+    is_english,
+    split_sentences,
+    text_hash,
+    word_count,
+)
+
+BRUNO_G = Player(
+    player_id="p_bruno_g",
+    name="Bruno Guimarães",
+    aliases=("Bruno Guimarães", "Bruno Guimaraes", "Bruno G.", "Bruno G"),
+    club="Newcastle United",
+)
+JOELINTON = Player(
+    player_id="p_joelinton",
+    name="Joelinton",
+    aliases=("Joelinton",),
+    club="Newcastle United",
+)
+BERNARDO = Player(
+    player_id="p_bernardo",
+    name="Bernardo Silva",
+    aliases=("Bernardo Silva", "Bernardo"),
+    club="Manchester City",
+)
+SILVA = Player(
+    player_id="p_silva",
+    name="Silva Santos",
+    aliases=("Silva",),
+    club="Fulham",
+)
+POPULATION = [BRUNO_G, JOELINTON, BERNARDO, SILVA]
+CLUBS = [
+    "Newcastle United",
+    "Manchester City",
+    "Fulham",
+    "Manchester United",
+    "Nottingham Forest",
+]
+
+
+class TextCleanTests(unittest.TestCase):
+    def test_clean_strips_markdown_quote_and_links(self):
+        raw = "> **Bruno G.** is [elite](http://x) &amp; press resistant"
+        self.assertEqual(clean_text(raw), "Bruno G. is elite & press resistant")
+
+    def test_hash_is_case_and_space_stable_across_sources(self):
+        self.assertEqual(text_hash(clean_text("Same   Comment")), text_hash(clean_text("same comment")))
+
+    def test_word_count_ignores_emoji_and_numbers(self):
+        self.assertEqual(word_count("What a pass 10/10 🔥"), 3)
+
+    def test_non_english_rejected_by_script_and_stopwords(self):
+        self.assertFalse(is_english("Он лучший игрок лиги"))
+        self.assertFalse(is_english("Fulham menang besar kemarin malam"))
+        self.assertTrue(is_english("He was the best player on the pitch tonight"))
+
+    def test_sentence_split_drops_fragments(self):
+        sentences = split_sentences("Yes. Bruno G. ran the midfield. He never stops.")
+        self.assertEqual(sentences, ["Bruno G. ran the midfield.", "He never stops."])
+
+    def test_bot_markers(self):
+        self.assertTrue(is_bot_like("AutoModerator", "Reminder: be civil."))
+        self.assertTrue(is_bot_like("someone", "I am a bot, and this action was performed automatically"))
+        self.assertFalse(is_bot_like("normal_user", "Bruno G. was brilliant again"))
+
+
+class AliasTests(unittest.TestCase):
+    def setUp(self):
+        self.index = AliasIndex.build(POPULATION)
+
+    def test_bare_surname_is_ambiguous(self):
+        self.assertTrue(self.index.is_ambiguous("Silva"))
+        self.assertTrue(self.index.is_ambiguous("Bernardo"))
+
+    def test_full_name_is_unambiguous(self):
+        self.assertFalse(self.index.is_ambiguous("Bruno Guimarães"))
+        self.assertFalse(self.index.is_ambiguous("Joelinton"))
+
+    def test_accent_and_apostrophe_normalisation(self):
+        self.assertEqual(normalize("João Pedro"), "joao pedro")
+        self.assertEqual(normalize("N'Golo Kanté"), "n'golo kante")
+        self.assertEqual(normalize("O'Brien"), "o'brien")
+
+    def test_possessive_does_not_block_a_mention(self):
+        # "Saka's finishing" must still match the alias "Saka".
+        self.assertEqual(normalize("Saka's finishing"), "saka finishing")
+        self.assertEqual(normalize("Jones’ pass"), "jones pass")
+
+    def test_possessive_mention_is_linked(self):
+        saka = Player("p_saka", "Bukayo Saka", ("Bukayo Saka", "Saka"), "Arsenal")
+        index = AliasIndex.build([saka])
+        self.assertEqual(index.find_mentions("Saka's finishing was ruthless tonight", "p_saka"), "Saka")
+
+    def test_find_mentions_matches_accent_free_spelling(self):
+        # Text is written without the accent, the canonical alias wins.
+        self.assertEqual(
+            self.index.find_mentions("bruno guimaraes was everywhere", "p_bruno_g"),
+            "Bruno Guimarães",
+        )
+
+    def test_find_mentions_rejects_other_player(self):
+        self.assertIsNone(self.index.find_mentions("Saka was quiet today", "p_bruno_g"))
+
+    def test_ambiguous_alias_needs_own_club_context(self):
+        self.assertFalse(self.index.has_context("Silva was poor on the ball", "p_silva", CLUBS))
+        self.assertTrue(
+            self.index.has_context("Silva was poor, Fulham never recovered", "p_silva", CLUBS)
+        )
+
+    def test_other_club_is_not_context(self):
+        # "City" belongs to another club, so it must not resolve Silva.
+        self.assertFalse(
+            self.index.has_context("Silva was poor against City", "p_silva", CLUBS)
+        )
+
+    def test_club_needles_use_only_safe_unique_words(self):
+        # "Manchester" is shared by two clubs, so it identifies neither.
+        self.assertEqual(
+            set(club_needles("Manchester United", CLUBS)),
+            {"manchester united", "manchesterunited"},
+        )
+        # "City" and "Forest" are ordinary English, so they cannot anchor alone.
+        self.assertEqual(set(club_needles("Manchester City", CLUBS)), {"manchester city", "manchestercity"})
+        self.assertEqual(
+            set(club_needles("Nottingham Forest", CLUBS)),
+            {"nottingham", "nottingham forest", "nottinghamforest"},
+        )
+        self.assertIn("newcastle", club_needles("Newcastle United", CLUBS))
+
+    def test_club_subreddit_counts_as_context(self):
+        self.assertTrue(
+            self.index.has_context("Silva was poor on the ball", "p_silva", CLUBS, implicit_club=True)
+        )
+
+    def test_query_terms_rank_specific_aliases_first(self):
+        terms = self.index.query_terms(BRUNO_G)
+        self.assertEqual(terms[0], "Bruno Guimarães")
+        # "Bruno G" and "Bruno G." normalise identically; one query term is kept.
+        self.assertIn("Bruno G.", terms)
+        self.assertEqual(len(terms), 2)
+
+    def test_alias_debug_lists_shared_names(self):
+        rows = dict((alias, owners) for alias, owners in AliasIndex.build(POPULATION).alias_debug())
+        self.assertIn("silva", rows)
+
+
+class QueryBuildTests(unittest.TestCase):
+    def test_season_window_matches_config(self):
+        start, end = season_bounds()
+        self.assertEqual(start, datetime(2025, 7, 1, tzinfo=timezone.utc))
+        # The last day must be covered in full, not just its midnight.
+        self.assertEqual(end, datetime(2026, 5, 31, 23, 59, 59, tzinfo=timezone.utc))
+        self.assertGreater(epoch_window()[1] - epoch_window()[0], 300 * 86400)
+
+    def test_query_is_exact_phrase_without_retired_date_operator(self):
+        # Reddit dropped Cloudsearch `timestamp:` ranges; including one would
+        # search for the literal word and return nothing.
+        query = search_query("Bruno Guimarães")
+        self.assertEqual(query, '"Bruno Guimarães"')
+        self.assertNotIn("timestamp", query.lower())
+
+    def test_subreddits_include_league_and_own_club_only(self):
+        subs = subreddits_for(BRUNO_G)
+        self.assertIn("soccer", subs)
+        self.assertIn("NUFC", subs)
+        self.assertNotIn("MCFC", subs)
+
+    def test_configured_subreddits_are_unique(self):
+        names = subreddits.configured_subreddits()
+        self.assertEqual(len(names), len(set(names)))
+        self.assertIn("PremierLeague", names)
+
+    def test_keep_comment_filters_deleted_and_stickied(self):
+        self.assertFalse(keep_comment({"body": "[removed]", "author": "x"}))
+        self.assertFalse(keep_comment({"body": "good point", "author": "x", "stickied": True}))
+        self.assertTrue(keep_comment({"body": "good point", "author": "fan"}))
+
+
+class PopulationTests(unittest.TestCase):
+    def test_duplicate_player_id_is_fatal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "players.csv"
+            path.write_text(
+                "player_id,name_canonical,name_aliases,club\n"
+                "p1,Alpha,,\n"
+                "p1,Beta,,\n",
+                encoding="utf-8",
+            )
+            from src.scrape.players import load_players
+
+            with self.assertRaises(SystemExit):
+                load_players(path)
+
+    def test_alias_pipe_split(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "players.csv"
+            path.write_text(
+                "player_id,name_canonical,name_aliases,club\n"
+                "p1,Bruno Guimarães,Bruno G.|Bruno Guimaraes,Newcastle United\n",
+                encoding="utf-8",
+            )
+            from src.scrape.players import load_players
+
+            (player,) = load_players(path)
+            self.assertEqual(player.aliases[0], "Bruno Guimarães")
+            self.assertIn("Bruno G.", player.aliases)
+
+    def test_pilot_subset_is_deterministic_and_spread(self):
+        players = [Player(f"p{i:02d}", f"Player {i}", (f"Player {i}",), None) for i in range(20)]
+        values = {p.player_id: float(i) for i, p in enumerate(players)}
+        first = pilot_subset(players, 5, values)
+        second = pilot_subset(players, 5, values)
+        self.assertEqual([p.player_id for p in first], [p.player_id for p in second])
+        self.assertEqual(len(first), 5)
+        self.assertLess(values[first[0].player_id], values[first[-1].player_id])
+
+
+class RetentionTests(unittest.TestCase):
+    """A fake client drives the real extraction path: no network, no creds."""
+
+    def _tree(self, *bodies):
+        children = []
+        for i, body in enumerate(bodies):
+            children.append(
+                {
+                    "kind": "t1",
+                    "data": {
+                        "id": f"c{i}",
+                        "body": body,
+                        "author": f"fan{i}",
+                        "subreddit": "NUFC",
+                        "created_utc": 1756000100.0,
+                        "permalink": f"/r/NUFC/x/c{i}",
+                        "score": 3,
+                    },
+                }
+            )
+        return [{}, {"data": {"children": children}}]
+
+    def _client(self, comments, created=1756000000.0):
+        tree = self._tree(*comments)
+        outer = self
+
+        class Stub:
+            requests_made = 0
+
+            def get(self, path, params=None):
+                if path.endswith("/search"):
+                    return {
+                        "data": {
+                            "children": [
+                                {"data": {"id": "t1", "subreddit": "NUFC", "created_utc": created}},
+                                {"data": {"id": "t0", "subreddit": "NUFC", "created_utc": 1500000000.0}},
+                            ],
+                            "after": None,
+                        }
+                    }
+                outer.assertEqual(path, "/comments/t1")
+                return tree
+
+        return Stub()
+
+    def _extract(self, client, player=BRUNO_G, quota=60):
+        index = AliasIndex.build([player, JOELINTON])
+        return extract_for_player(client, player, index, CLUBS, quota)
+
+    def test_comment_and_sentences_are_both_kept(self):
+        client = self._client(
+            ["Bruno G. ran the midfield all game and never stopped pressing. "
+             "Bruno G. also completed every pass he attempted under pressure."]
+        )
+        records = self._extract(client)
+        self.assertEqual([r.unit_type for r in records], ["comment", "sentence", "sentence"])
+        self.assertEqual(
+            {r.text_id for r in records},
+            {"rd_c0_p_bruno_g", "rd_c0_p_bruno_g_s0", "rd_c0_p_bruno_g_s1"},
+        )
+        self.assertEqual(records[1].parent_text_id, "rd_c0_p_bruno_g")
+
+    def test_pronoun_only_sentence_is_not_linked(self):
+        # Rule 3: a sentence is linked only if it names the player itself.
+        client = self._client(
+            ["Bruno G. ran the midfield all game and never stopped pressing. His passing was unreal."]
+        )
+        records = self._extract(client)
+        self.assertEqual([r.unit_type for r in records], ["comment", "sentence"])
+
+    def test_threads_outside_the_season_are_dropped(self):
+        client = self._client(
+            ["Bruno G. ran the midfield all game and never stopped pressing."], created=1500000000.0
+        )
+        self.assertEqual(self._extract(client), [])
+
+    def test_comments_not_naming_the_player_are_dropped(self):
+        client = self._client(["Joelinton was unplayable in that second half, honestly superb."])
+        self.assertEqual(self._extract(client), [])
+
+    def test_ambiguous_alias_without_club_context_is_dropped(self):
+        client = self._client(
+            ["Bernardo was quiet again and offered nothing going forward.", "Silva also struggled badly."]
+        )
+        index = AliasIndex.build([BRUNO_G, BERNARDO, SILVA])
+        self.assertEqual(extract_for_player(client, BERNARDO, index, CLUBS, 60), [])
+
+    def test_ambiguous_alias_with_club_context_is_kept(self):
+        client = self._client(
+            ["Bernardo was excellent, Manchester City controlled midfield from the first minute."]
+        )
+        index = AliasIndex.build([BRUNO_G, BERNARDO, SILVA])
+        records = extract_for_player(client, BERNARDO, index, CLUBS, 60)
+        self.assertTrue(records)
+        self.assertTrue(all(r.matched_alias == "Bernardo" for r in records))
+
+    def test_comment_naming_two_players_gets_distinct_text_ids(self):
+        # One comment, two sample players: both records are legitimate and the
+        # downstream join key must not collide.
+        body = "Bruno G. and Joelinton ran that midfield together all evening."
+        client = self._client([body])
+        index = AliasIndex.build([BRUNO_G, JOELINTON])
+        bruno = extract_for_player(client, BRUNO_G, index, CLUBS, 60)
+        joel = extract_for_player(client, JOELINTON, index, CLUBS, 60)
+        self.assertTrue(bruno and joel)
+        ids = {r.text_id for r in [*bruno, *joel]}
+        self.assertEqual(len(ids), len(bruno) + len(joel))
+        self.assertEqual({r.player_id for r in bruno}, {"p_bruno_g"})
+        self.assertEqual({r.player_id for r in joel}, {"p_joelinton"})
+
+    def test_post_season_comment_in_an_old_thread_is_dropped(self):
+        # Thread is in-season; the comment is from after the season ended.
+        index = AliasIndex.build([BRUNO_G])
+        client = self._client(["placeholder text for the stub thread"])
+        later = {"kind": "t1", "data": {
+            "id": "c0",
+            "body": "Bruno G. ran the midfield all game and never stopped pressing.",
+            "author": "fan", "subreddit": "NUFC",
+            "created_utc": 1782000000.0,  # 2026-06-20, after the season window
+            "permalink": "/r/NUFC/x/c0", "score": 3,
+        }}
+        late_tree = [{}, {"data": {"children": [later]}}]
+        client.get = lambda path, params=None: (
+            {"data": {"children": [{"data": {"id": "t1", "subreddit": "NUFC", "created_utc": 1756000000.0}}], "after": None}}
+            if path.endswith("/search") else late_tree
+        )
+        self.assertEqual(extract_for_player(client, BRUNO_G, index, CLUBS, 60), [])
+
+    def test_duplicate_comment_text_is_kept_once(self):
+        body = "Bruno G. is the best midfielder in the league right now, no debate at all."
+        client = self._client([body, body])
+        comments = [r for r in self._extract(client) if r.unit_type == "comment"]
+        self.assertEqual(len(comments), 1)
+
+    def test_quota_stops_the_scrape(self):
+        bodies = [f"Bruno G. dictated the tempo again in game number {i}, unreal." for i in range(6)]
+        client = self._client(bodies)
+        comments = [r for r in self._extract(client, quota=2) if r.unit_type == "comment"]
+        self.assertEqual(len(comments), 2)
+
+    def test_no_author_field_is_persisted(self):
+        client = self._client(["Bruno G. was brilliant in midfield tonight, again."])
+        record = self._extract(client)[0]
+        self.assertNotIn("author", asdict(record))
+        self.assertIn("text_clean_hash", asdict(record))
+
+
+class RawOutputTests(unittest.TestCase):
+    def test_second_run_in_the_same_second_gets_its_own_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = unique_raw_dir("pilot", base=Path(tmp))
+            (first / "texts.jsonl").write_text("earlier run", encoding="utf-8")
+            second = unique_raw_dir("pilot", base=Path(tmp))
+            self.assertNotEqual(first, second)
+            self.assertEqual((first / "texts.jsonl").read_text(encoding="utf-8"), "earlier run")
+            self.assertTrue(second.is_dir())
+
+
+class RelevanceTests(unittest.TestCase):
+    def test_unlabelled_rows_are_ignored_and_rate_computed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sheet = Path(tmp) / "review.csv"
+            with sheet.open("w", encoding="utf-8", newline="") as fh:
+                writer = csv.DictWriter(fh, fieldnames=relevance.FIELDS)
+                writer.writeheader()
+                for i, label in enumerate(["y", "yes", "n", ""]):
+                    writer.writerow(
+                        {
+                            "text_id": f"t{i}",
+                            "player_id": "p1",
+                            "subreddit": "soccer",
+                            "created_at": "2025-09-01",
+                            "url": "",
+                            "text_clean": "Bruno G. was excellent",
+                            "relevant": label,
+                        }
+                    )
+            out = Path(tmp) / "report.md"
+            original = relevance.REPORT
+            relevance.REPORT = out
+            try:
+                path, stats = relevance.score_review(sheet)
+            finally:
+                relevance.REPORT = original
+            self.assertEqual(stats["labelled"], 3)
+            self.assertEqual(stats["relevant"], 2)
+            self.assertAlmostEqual(stats["rate"], 2 / 3)
+            self.assertTrue(path.read_text(encoding="utf-8").startswith("# Relevansi"))
+
+    def test_missing_sheet_is_an_error(self):
+        with self.assertRaises(SystemExit):
+            relevance.score_review(Path(tempfile.gettempdir()) / "does-not-exist.csv")
+
+
+if __name__ == "__main__":
+    unittest.main()

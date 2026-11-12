@@ -21,6 +21,11 @@ Format tanggal: `YYYY-MM-DD`. Jangan hapus baris lama — tambahkan baris baru d
 | 2026-11-11 | Aspek | kamus kata kunci | Classifier aspek butuh data berlabel yang tidak ada dalam 1 minggu | — |
 | 2026-11-11 | BERTopic | ditunda | Tidak masuk metrik kelulusan; waktu lebih baik untuk evaluasi | — |
 | 2026-11-11 | X/Twitter | dilewati | Akses mahal dan tidak pasti; Reddit + YouTube cukup sebagai bukti metode teks | — |
+| 2026-11-12 | Klien Reddit | `requests` + OAuth `client_credentials` (bukan PRAW) | PRAW belum terpasang dan menambah dependensi tanpa manfaat di sini; endpoint JSON sama | B |
+| 2026-11-12 | Cakupan subreddit per pemain | r/soccer + r/PremierLeague + subreddit klub pemain itu saja | Menyisir 20 subreddit klub untuk satu pemain menghabiskan ratusan request tanpa hasil; diskusi klub rival tetap tertangkap lewat subreddit liga. Naikkan bila recall pilot rendah | B |
+| 2026-11-12 | Batas teks Reddit | 60 komentar per pemain, 3 thread per (subreddit x istilah), 3 halaman search | Kuota volume agar bintang tidak mendominasi (PRD §12, bias volume) | B |
+| 2026-11-12 | Rate limit Reddit | lantai keras 1,0 detik; config hanya boleh menaikkan | Aturan AGENTS: rate limit >= 1 detik per request | B |
+| 2026-11-12 | Penyimpanan mentah Reddit | `data/raw/reddit/<tag>-<timestamp>/texts.jsonl` + `summary.json`, ditulis sekali | Data mentah tidak boleh tertimpa (AGENTS aturan 5); cache per request juga tidak ditimpa | B |
 
 ## Perubahan setelah melihat data
 

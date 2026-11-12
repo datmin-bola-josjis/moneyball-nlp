@@ -4,7 +4,7 @@ Identifying undervalued Premier League players from public discussion, then chec
 
 Data Mining course project, Semester 5. Four people, one week. The prototype covers the Premier League 2025/26 season.
 
-**Status:** documentation and repository scaffold are in place. The pipeline is not written yet.
+**Status:** documentation and repository scaffold are in place. Stage B (Reddit retrieval) is written; stages A and C to F are not. Nothing has been scraped yet — stage B needs the Reddit credentials in `.env` and the locked sample list from stage A.
 
 ## Research question
 
@@ -17,7 +17,7 @@ Text drives the analysis. Market value supplies the price, and performance data 
 | Stage | What it does | Module |
 |---|---|---|
 | A. Population | Roster for all 20 clubs, minutes played, internal `player_id`, name aliases. Locks the text sample of roughly 70 players. | `src/population/` |
-| B. Retrieval | Player-centric search on Reddit and YouTube, bounded by season dates and the whitelist in config. | `src/scrape/` |
+| B. Retrieval | Player-centric search on Reddit and YouTube, bounded by season dates and the whitelist in config. Reddit is written; YouTube is pending. | `src/scrape/` |
 | C. Linking | Sentence-level entity linking with club context, plus date, language and deduplication filters. | `src/link/` |
 | D. NLP | VADER sentiment per sentence, aspect assignment by keyword dictionary, buzz volume per player. | `src/nlp/` |
 | E. Scoring | Text Quality Score, evidence labels, numeric validation, candidate and overhyped flags. | `src/score/` |
@@ -46,6 +46,31 @@ Stage B needs credentials that are not in the repository.
 
 `.env` is in `.gitignore` and never committed. Without these credentials stage B cannot run, and stages C to F have no input.
 
+## Stage B in practice
+
+```bash
+make scrape-verify     # Day 1 gate: every configured subreddit name really exists
+make scrape-pilot      # 20 players spread across the market-value range
+make review            # draw 100 scraped comments into data/interim/review_relevance.csv
+# label y/n by hand, then:
+make review-score      # writes reports/retrieval_relevance.md, must clear 85%
+make scrape            # full run over the locked sample
+```
+
+Output per run:
+
+```text
+data/raw/reddit/<tag>-<timestamp>/texts.jsonl    raw records, one JSON per text; never overwritten
+data/raw/reddit/<tag>-<timestamp>/summary.json    counts per player, requests made
+data/interim/texts_reddit_<tag>.jsonl             handoff copy, replaced by the next run of the same tag
+```
+
+Every record carries `player_id`, `source`, `unit_type` (`comment` or `sentence`), `text_clean_hash` for cross-source dedupe, `created_at`, `url`, `subreddit` and the `matched_alias` that triggered the hit. Comment authors are checked for bot markers and then discarded, never stored.
+
+A run logs the number of texts kept per player and lists players with none, so a silent empty scrape cannot pass as success. `make scrape` refuses to start until `data/processed/text_sample.parquet` exists and `text_sample.locked` is true.
+
+Reddit retrieval is the part written so far. YouTube and article retrieval are person C's stage and are not implemented; `src/scrape/` is shared, so the text helpers and the population reader are meant to be reused there rather than duplicated.
+
 ## Layout
 
 ```text
@@ -63,7 +88,7 @@ reports/figures/     figures produced by the pipeline
 tests/               alias matching, date filters, schema checks
 ```
 
-`make pipeline` is meant to run the whole thing from raw input to output. Per-stage targets exist so a failure is cheap to isolate. The targets are wired up; the modules behind them are not written.
+`make pipeline` is meant to run the whole thing from raw input to output. Per-stage targets exist so a failure is cheap to isolate. Only stage B (Reddit) has code behind it; the other targets still point at modules that do not exist.
 
 ## Documents
 

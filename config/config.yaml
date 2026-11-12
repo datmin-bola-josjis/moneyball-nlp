@@ -106,6 +106,9 @@ text_sources:
     max_texts_per_player: 60
     min_words: 8                # PRD §7.C: >= 8-10 kata
     max_pages_per_query: 3
+    max_threads_per_query: 3    # batas thread per (pemain x subreddit x istilah)
+    rate_limit_seconds: 1.0     # lantai keras 1 detik, tidak bisa diturunkan
+    cache_dir: "data/raw/reddit"
 
   youtube:
     enabled: true
