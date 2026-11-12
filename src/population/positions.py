@@ -45,7 +45,13 @@ DEEPSTATS_CODE_LABELS: Final[dict[int, str]] = {
     76: "Central Midfielder",
     77: "Central Midfielder",
     82: "Right Winger",
-    83: "Right Midfielder",
+    # Code 83 is labelled "Right Midfielder" by the deepstats row itself, but
+    # 22 of the 26 players carrying it report "Right Winger" as their main
+    # position in playerData (Saka, Salah, Kudus, Madueke). Their per-90
+    # profile matches the winger codes (tackles 1.58 versus 1.57 for the
+    # Left Winger code 87) rather than the midfielder codes (2.06 to 2.38).
+    # Mapping it to MID would compare wingers against central midfielders.
+    83: "Right Winger",
     84: "Attacking Midfielder",
     85: "Attacking Midfielder",
     86: "Attacking Midfielder",

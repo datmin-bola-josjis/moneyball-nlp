@@ -107,3 +107,28 @@ def test_mapping_covers_every_code_in_real_data() -> None:
         f"FotMob emitted unmapped position codes {sorted(unknown)}; "
         "check the official label in playerData before adding them"
     )
+
+
+# --------------------------------------------------- regression: code 83
+
+def test_code_83_is_forward_not_midfield() -> None:
+    """deepstats labels code 83 "Right Midfielder" but the players are wingers.
+
+    22 of the 26 players carrying code 83 report "Right Winger" as their main
+    position in playerData, and their per-90 tackle rate (1.58) matches the
+    winger codes rather than the midfielder codes (2.06 to 2.38). Mapping it
+    to MID compared Saka and Salah against central midfielders.
+    """
+    assert to_position_group(83) == "FWD"
+
+
+def test_wingers_share_the_same_group_across_codes() -> None:
+    """Left and right wingers must land in one group for a positional z-score."""
+    assert to_position_group(87) == to_position_group(83)
+    assert to_position_group(103) == to_position_group(83)
+
+
+def test_wing_backs_stay_defenders() -> None:
+    """A wing-back is a defender; only the winger codes moved."""
+    assert to_position_group(62) == "DEF"
+    assert to_position_group(68) == "DEF"

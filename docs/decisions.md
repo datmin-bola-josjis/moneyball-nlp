@@ -20,6 +20,9 @@ Format tanggal: `YYYY-MM-DD`. Jangan hapus baris lama — tambahkan baris baru d
 
 | Tanggal | Keputusan | Nilai | Alasan | Oleh |
 |---|---|---|---|---|
+| 2026-11-12 | Kode posisi 83 = FWD, bukan MID | `positions.py` 83 → "Right Winger" | deepstats memberi label "Right Midfielder", tapi 22 dari 26 pemain berkode 83 melaporkan "Right Winger" di playerData (Saka, Salah, Kudus, Madueke). Profil per-90 mereka cocok dengan kode winger: tackle 1.58 vs 1.57 (kode 87 Left Winger), sementara kode gelandang 2.06–2.38. Memetakan ke MID membandingkan winger dengan gelandang tengah dan menggeser 26 pemain. Sampel teks dibuat ulang setelah perbaikan | Rafif |
+| 2026-11-12 | Sumber posisi = deepstats, bukan playerData | `position` dari baris statistik musim | `playerData` merujuk klub dan musim saat ini: untuk Salah isinya Süper Lig 2026/2027 dan Trabzonspor, bukan Liverpool 2025/26. Label posisinya juga agregat karier (RW 31 kali, Striker 12, AM 5), bukan posisi musim ini. Dipakai hanya untuk memverifikasi label, bukan sebagai sumber utama | Rafif |
+| 2026-11-12 | Semantik statistik diverifikasi, tidak dipercaya dari nama | lihat `src/score/metrics.py` | `total_tackle` dan `accurate_pass` ternyata SUDAH per-90 walau namanya tanpa akhiran. `goals`, `xG`, `xA` adalah total dan cocok dengan `per_90 x menit/90` (295/314 cocok). `saves` hanya memuat 20 kiper dengan ≥1800 menit — kiper di bawah itu bernilai null, bukan nol | Rafif |
 | 2026-11-11 | Model sentiment | VADER sebagai baseline, HF hanya jika akurasi < 75% | VADER cepat, tanpa training, cukup untuk teks pendek seperti komentar | — |
 | 2026-11-11 | Aspek | kamus kata kunci | Classifier aspek butuh data berlabel yang tidak ada dalam 1 minggu | — |
 | 2026-11-11 | BERTopic | ditunda | Tidak masuk metrik kelulusan; waktu lebih baik untuk evaluasi | — |

@@ -9,7 +9,7 @@ VENV := .venv
 PYTHON ?= $(if $(wildcard $(VENV)/bin/python),$(VENV)/bin/python,python3)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup venv check config sample fetch-players lock-sample population scrape link nlp score viz pipeline test clean
+.PHONY: help setup venv check config sample metrics fetch-players lock-sample population scrape link nlp score viz pipeline test clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -47,6 +47,9 @@ link: ## Stage C - entity linking and text filtering
 
 nlp: ## Stage D - sentiment and aspect extraction
 	$(PYTHON) -m src.nlp.analyze
+
+metrics: ## Stage A/E - numeric metrics, ratings and positional z-scores
+	$(PYTHON) -m src.score.run_metrics
 
 score: ## Stage E - text quality score, validation, candidate flagging
 	$(PYTHON) -m src.score.rank
