@@ -57,9 +57,40 @@ text_sample:
   per_position_group: 17        # 4 x 17 ≈ 68, sesuaikan dengan data aktual
   min_per_cell: 4               # minimum per (posisi x kuartil harga)
   stratify_by: market_value_quartile
+  random_seed: 20252026         # WAJIB tetap: stratified sampling harus
+                                # reproducible. Jangan diubah setelah sampel
+                                # dikunci — mengubah seed = sampel berbeda.
   locked: false                 # ubah ke true di Hari 1 setelah file sampel dibuat
   locked_at: null               # isi tanggal, mis. "2026-11-11"
   locked_file: "data/processed/text_sample.parquet"
+
+# ------------------------------------------- B1. Sumber data terstruktur
+# Transfermarkt DIBLOKIR TOTAL: HTTP 405 di semua path, termasuk homepage,
+# dengan User-Agent browser lengkap sekalipun. `soccerdata` juga tidak punya
+# modul Transfermarkt. Karena itu harga pindah ke FotMob, yang menyediakan
+# market value DAN rating dari satu sumber — sekaligus memenuhi aturan
+# "satu sumber rating saja". Lihat docs/decisions.md, 2026-11-12.
+data_source:
+  provider: "fotmob"
+  league_id: 47                 # FotMob league ID untuk Premier League
+  season_id: 27110              # FotMob season ID untuk 2025/26
+  # Endpoint yang MENGHORMATI parameter season (terverifikasi: top scorer
+  # 2025/26 = Haaland 27 gol, 2024/25 = Salah 29 gol, jadi param dipakai):
+  #   /api/data/leagueseasondeepstats?id=47&season=<id>&type=players&stat=<stat>
+  # Endpoint /api/data/leagues?id=47 IGNORES the season param: it always
+  # returns the 2026/27 table. Do not use it to confirm 2025/26 clubs.
+  stats_endpoint: "https://www.fotmob.com/api/data/leagueseasondeepstats"
+  # Statistik yang tersedia dan relevan untuk Tahap A:
+  #   mins_played, rating, goals, goal_assist, expected_goals,
+  #   expected_assists, _expected_goals_and_expected_assists_per_90,
+  #   total_tackle, interception, accurate_pass, saves, _goals_prevented
+  market_value_from: "playerData.marketValues"
+  # marketValues berisi deret historis dengan lowerBound/upperBound, sumber
+  # scisports. Pakai titik terakhir dalam jendela musim, bukan titik terlama.
+  # CATATAN: position dari FotMob berupa kode numerik (mis. 115), bukan
+  # GK/DEF/MID/FWD. Pemetaan kode -> position_group WAJIB dibuat eksplisit
+  # dan diuji sebelum z-score per posisi dihitung.
+  position_map_note: "numeric codes; map explicitly, verify before z-score"
 
 # ------------------------------------------------------- B2. Sumber rating
 validation:

@@ -17,8 +17,8 @@ setup: ## Install dependencies from requirements.txt
 check: config ## Validate config and run tests
 	$(PYTHON) -m pytest tests/ -q
 
-config: ## Validate config/config.yaml parses and has expected shape
-	$(PYTHON) -c "import yaml; d = yaml.safe_load(open('config/config.yaml')); assert len(d) == 11, f'expected 11 top-level keys, got {len(d)}'; print('config ok:', len(d), 'sections')"
+config: ## Validate config/config.yaml parses and keeps its invariants
+	$(PYTHON) -m src.validate_config
 
 # ---------------------------------------------------------------- Stages
 # Each stage reads from data/ and writes to data/, never overwriting raw input.
