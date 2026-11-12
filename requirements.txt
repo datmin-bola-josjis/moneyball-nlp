@@ -1,0 +1,36 @@
+# Runtime dependencies — pinned to major/minor for reproducibility.
+# Versions are deliberately loose within a minor line until the pipeline is
+# stable; tighten to exact pins at the end of the week. See docs/PRD.md §11.
+
+# Data structures
+pandas>=2.2,<3.0
+pyarrow>=16.0
+
+# Data retrieval (Stage A: population)
+soccerdata>=1.8
+
+# Scraping (Stage B: text retrieval)
+requests>=2.32
+trafilatura>=1.12
+praw>=7.7
+youtube-transcript-api>=0.6.2
+google-api-python-client>=2.130
+
+# Entity linking (Stage C)
+rapidfuzz>=3.9
+spacy>=3.7
+
+# NLP and scoring (Stages D-E)
+vaderSentiment>=3.3.2
+scikit-learn>=1.5
+
+# Visualisation (Stage F)
+matplotlib>=3.9
+plotly>=5.22
+
+# Config
+PyYAML>=6.0
+python-dotenv>=1.0
+
+# Testing
+pytest>=8.2

@@ -1,0 +1,75 @@
+# ---------------------------------------------------------------- Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+
+# ---------------------------------------------------------------- Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ---------------------------------------------------------------- Secrets
+# Never commit credentials. Copy .env.example and fill in locally.
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+
+# ---------------------------------------------------------------- Data
+# Raw scraped data must never be redistributed (docs/PRD.md §13).
+# Directory structure is kept via .gitkeep files.
+data/raw/*
+!data/raw/.gitkeep
+data/interim/*
+!data/interim/.gitkeep
+*.csv.gz
+*.jsonl
+*.sqlite
+*.db
+*.feather
+
+# Processed data is regenerable EXCEPT the locked sample list, which is a
+# methodological guarantee (docs/PRD.md §7.A.5) and must stay auditable.
+data/processed/*
+!data/processed/.gitkeep
+!data/processed/text_sample.parquet
+
+# Large model artifacts
+models/
+*.joblib
+*.pkl
+
+# ---------------------------------------------------------------- Notebooks
+.ipynb_checkpoints/
+*.nbconvert.ipynb
+
+# NOTE: reports/figures/ is intentionally tracked. Figures are deliverables
+# (docs/PRD.md §10) and raw data is not committed, so they cannot be rebuilt
+# after cloning. Only intermediate/exploratory plots belong in data/interim/.
+
+# ---------------------------------------------------------------- OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# ---------------------------------------------------------------- Local-only
+# Agent session state: activity logs and machine-specific paths, not useful
+# to collaborators. See AGENTS.md "Konvensi kerja".
+HANDOFF.md
+.agent/
