@@ -9,7 +9,7 @@ VENV := .venv
 PYTHON ?= $(if $(wildcard $(VENV)/bin/python),$(VENV)/bin/python,python3)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup venv check config sample population scrape link nlp score viz pipeline test clean
+.PHONY: help setup venv check config sample fetch-players lock-sample population scrape link nlp score viz pipeline test clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -30,8 +30,14 @@ config: ## Validate config/config.yaml parses and keeps its invariants
 # ---------------------------------------------------------------- Stages
 # Each stage reads from data/ and writes to data/, never overwriting raw input.
 
-population: ## Stage A - build player population and lock the text sample
-	$(PYTHON) -m src.population.build
+fetch-players: ## Stage A - fetch one FotMob payload per player (cached, resumable)
+	$(PYTHON) -m src.population.fetch_players
+
+population: ## Stage A - build players.parquet and the text sample (dry run)
+	$(PYTHON) -m src.population.run_population
+
+lock-sample: ## Stage A - same as population, then lock the sample file
+	$(PYTHON) -m src.population.run_population --lock
 
 scrape: ## Stage B - retrieve texts per player (reddit, youtube, article)
 	$(PYTHON) -m src.scrape.run
