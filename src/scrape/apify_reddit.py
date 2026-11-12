@@ -27,6 +27,7 @@ import logging
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 
@@ -86,21 +87,50 @@ class ApifyClient:
     def __init__(self, token: str | None = None, session: requests.Session | None = None):
         self.token = token or env("APIFY_TOKEN")
         self._session = session or requests.Session()
+        # Bearer header, not `?token=`: a token in the query string ends up in
+        # request logs and proxy history, which is exactly how it leaked into
+        # this project's own verbose output during the first live run.
+        self._session.headers["Authorization"] = f"Bearer {self.token}"
 
     def _get(self, path: str, params: dict | None = None) -> dict:
-        resp = self._session.get(
-            f"{API}{path}",
-            params={"token": self.token, **(params or {})},
-            timeout=120,
-        )
+        resp = self._session.get(f"{API}{path}", params=params or {}, timeout=120)
         if resp.status_code != 200:
             raise ApifyError(f"GET {path} -> HTTP {resp.status_code}: {resp.text[:200]}")
         return resp.json()
 
+    def input_properties(self) -> set[str]:
+        """Property names the actor's published build actually accepts.
+
+        The actor silently ignores unknown keys: on the first live pilot a
+        `searchQueries` key (not in its schema - it takes `searchQuery`) was
+        dropped, the search never ran, and the run returned the subreddit's hot
+        posts instead. Validating here turns that silent failure into an error.
+        """
+        if getattr(self, "_props", None):
+            return self._props
+        build = self._get(f"/acts/{ACTOR.replace('/', '~')}/builds")["data"]["items"][0]
+        payload = self._get(
+            f"/acts/{ACTOR.replace('/', '~')}/builds/{build['id']}"
+        )["data"]["inputSchema"]
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        self._props = set(payload.get("properties", {}))
+        return self._props
+
+    def validate_input(self, actor_input: dict) -> None:
+        unknown = sorted(set(actor_input) - self.input_properties())
+        if unknown:
+            raise ApifyError(
+                f"actor does not accept these input keys: {unknown}. "
+                "Unknown keys are silently ignored by Apify and the run would "
+                "return unrelated data."
+            )
+
     def run_actor(self, actor_input: dict, timeout_s: int = 900) -> dict:
+        self.validate_input(actor_input)
         run = self._session.post(
             f"{API}/acts/{ACTOR.replace('/', '~')}/runs",
-            params={"token": self.token, "timeout": timeout_s},
+            params={"timeout": timeout_s},
             json=actor_input,
             timeout=120,
         )
@@ -151,10 +181,17 @@ def build_input(player: Player, index: AliasIndex, cfg: dict) -> dict:
     """
     subs = player_club_subreddits(player)
     alias = index.query_terms(player, max_terms=1)
+    # `searchQuery` (singular string) is the only search key in the actor's
+    # schema. Sending `searchQueries` is silently ignored and the actor then
+    # lists the subreddit's hot posts instead of searching - which is exactly
+    # what happened on the first live pilot and produced zero texts.
     payload = {
-        "searchQueries": alias or [player.name],
-        "sort": "relevance",
-        "timeFilter": "all",
+        "searchQuery": (alias or [player.name])[0],
+        # Relative window only: Reddit search cannot target an absolute date
+        # range, so the widest window that still overlaps the season is used and
+        # the exact season boundary is enforced locally.
+        "sort": cfg.get("search_sort", "top"),
+        "timeFilter": cfg.get("search_time_filter", "year"),
         "maxPostsPerSource": int(cfg.get("max_posts_per_player", 5)),
         "includeComments": True,
         "maxCommentsPerPost": int(cfg.get("max_comments_per_post", 12)),
@@ -180,6 +217,19 @@ def _utc(value: str | None) -> float:
 _DELETED = {"[deleted]", "[removed]"}
 
 
+def _absolute(permalink: str | None) -> str:
+    """The actor returns an absolute permalink; the comment path returns a path.
+
+    Prefixing unconditionally produced `https://www.reddit.comhttps://...` on the
+    first live run, so both shapes are handled here.
+    """
+    if not permalink:
+        return ""
+    if permalink.startswith(("http://", "https://")):
+        return permalink
+    return f"https://www.reddit.com{permalink}"
+
+
 def _subreddit_of(item: dict, by_post: dict[str, str]) -> str:
     """Resolve the subreddit for a record.
 
@@ -193,9 +243,12 @@ def _subreddit_of(item: dict, by_post: dict[str, str]) -> str:
     post_id = str(item.get("postId") or "")
     if post_id and post_id in by_post:
         return by_post[post_id]
-    parts = str(item.get("permalink") or "").split("/")
-    if len(parts) > 2 and parts[1] == "r" and parts[2]:
-        return parts[2]
+    # Permalinks arrive both as `/r/<sub>/...` and as absolute URLs, so the path
+    # is parsed rather than indexed positionally.
+    path = urlparse(_absolute(item.get("permalink"))).path
+    parts = [p for p in path.split("/") if p]
+    if len(parts) >= 2 and parts[0] == "r":
+        return parts[1]
     return ""
 
 
@@ -279,7 +332,7 @@ def records_from_items(
             created_at=datetime.fromtimestamp(created, tz=timezone.utc).isoformat(
                 timespec="seconds"
             ),
-            url=f"https://www.reddit.com{item.get('permalink', '')}",
+            url=_absolute(item.get("permalink")),
             thread_id=post_id,
             subreddit=subreddit,
             engagement=int(item.get("score") or 0),

@@ -117,10 +117,18 @@ text_sources:
     # Agreement §7 dan PRD §13 (lihat docs/tahap-b-reddit.md §3 serta
     # docs/decisions.md). Nonaktif secara default; OAuth adalah jalur utama.
     apify:
-      enabled: false            # ubah ke true hanya kalau tim memutuskan memakai jalur ini
-      max_posts_per_player: 5   # kuota 60 teks/pemain tercapai lewat 5 post x 12 komentar
+      enabled: true             # diaktifkan 2026-11-12 atas keputusan tim (lihat docs/decisions.md)
+      max_posts_per_player: 15  # kuota 60 teks/pemain tercapai lewat 5 post x 12 komentar
       max_comments_per_post: 12 # actor menagih per komentar PER POST, bukan per pemain
-      max_cost_usd: 6.0         # pagar biaya; estimasi dicetak sebelum jalan
+      max_cost_usd: 12.9         # pagar biaya; estimasi dicetak sebelum jalan (70 pemain = $10.87)
+      # Pencarian Reddit hanya punya jendela WAKTU RELATIF (jam/hari/pekan/bulan/
+      # tahun/semua), tidak bisa menyasar 2025-07..2026-05 secara langsung.
+      # "year" dari Nov 2026 = Nov 2025..Nov 2026, yaitu irisan terbesar musim
+      # yang masih terjangkau; filter musim lokal kemudian memangkas sisa di luar
+      # 2026-05-31. "all" justru mengembalikan saga transfer terbaru (Jun-Okt 2026)
+      # yang seluruhnya gugur di filter musim.
+      search_time_filter: "year"
+      search_sort: "top"        # post paling dibahas setahun terakhir, bukan yang terbaru
 
   youtube:
     enabled: true

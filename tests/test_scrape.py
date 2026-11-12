@@ -585,11 +585,50 @@ class ApifyProviderTests(unittest.TestCase):
         self.assertEqual(payload["maxCommentsPerPost"], 12)
         self.assertTrue(payload["includeComments"])
         self.assertEqual(payload["searchSubreddit"], "NUFC")
-        self.assertEqual(payload["searchQueries"], ["Bruno Guimarães"])
+        # `searchQuery` singular: `searchQueries` is not in the actor schema and
+        # is silently dropped, which made the first live pilot return hot posts.
+        self.assertEqual(payload["searchQuery"], "Bruno Guimarães")
+        self.assertNotIn("searchQueries", payload)
 
     def test_disabled_provider_refuses_to_run(self):
-        with self.assertRaises(SystemExit):
-            apify_reddit.run([BRUNO_G], client=object())
+        # Forced off here: the real config is a team decision and may be either
+        # way, so the test must not depend on its current value.
+        cfg = apify_reddit.load_config()
+        apify_cfg = cfg["text_sources"]["reddit"]["apify"]
+        original = dict(apify_cfg)
+        apify_cfg["enabled"] = False
+        try:
+            with self.assertRaises(SystemExit):
+                apify_reddit.run([BRUNO_G], client=object())
+        finally:
+            apify_cfg.update(original)
+
+    def test_absolute_permalink_is_not_prefixed_twice(self):
+        # Live run produced `https://www.reddit.comhttps://www.reddit.com/...`
+        records = self._map([self._comment(permalink="https://www.reddit.com/r/NUFC/comments/p1/x/c1/")])
+        self.assertEqual(records[0].url, "https://www.reddit.com/r/NUFC/comments/p1/x/c1/")
+        relative = self._map([self._comment(permalink="/r/NUFC/comments/p1/x/c1/")])
+        self.assertEqual(relative[0].url, "https://www.reddit.com/r/NUFC/comments/p1/x/c1/")
+
+    def test_token_is_sent_as_bearer_not_query_param(self):
+        # A token in the query string leaks into request logs; the first live
+        # run printed it into verbose output that way.
+        client = apify_reddit.ApifyClient(token="secret-token")
+        self.assertEqual(client._session.headers["Authorization"], "Bearer secret-token")
+
+    def test_subreddit_parsed_from_absolute_permalink(self):
+        absolute = {"permalink": "https://www.reddit.com/r/MCFC/comments/1/x/c1/"}
+        self.assertEqual(apify_reddit._subreddit_of(absolute, {}), "MCFC")
+        relative = {"permalink": "/r/NUFC/comments/p1/x/c1/"}
+        self.assertEqual(apify_reddit._subreddit_of(relative, {}), "NUFC")
+
+    def test_unknown_input_key_is_rejected(self):
+        # Guards the class of bug that broke the first live pilot.
+        client = apify_reddit.ApifyClient(token="x")
+        client._props = {"searchQuery", "sort"}
+        with self.assertRaises(apify_reddit.ApifyError):
+            client.validate_input({"searchQueries": ["a"], "sort": "relevance"})
+        client.validate_input({"searchQuery": "a", "sort": "relevance"})
 
     def test_cost_cap_blocks_the_run_before_any_request(self):
         cfg = apify_reddit.load_config()
