@@ -1,6 +1,10 @@
 # Tahap B — Akses Reddit (permohonan manual)
 
-Status: **terbuka, tenggat Hari 1.** Ini risiko nomor satu di [`PLAN-1WEEK.md`](../docs/PLAN-1WEEK.md) §6 dan sudah disebut di PRD §12: "Akses Reddit macet (persetujuan API lama)".
+Status: **terbuka, tenggat Hari 1.** Permohonan **belum dikirim**; formulir siap
+diisi (jawaban lengkap di bawah). Sampai disetujui, `.env` tidak bisa diisi dan
+`make scrape` tidak bisa jalan — itu memang disengaja.
+
+Ini risiko nomor satu di [`PLAN-1WEEK.md`](PLAN-1WEEK.md) §6 dan sudah disebut di PRD §12: "Akses Reddit macet (persetujuan API lama)".
 
 ## Masalahnya
 
@@ -106,10 +110,74 @@ No. Non-commercial university coursework. No monetization of any kind.
 ```
 Comment text is retained locally only for the duration of the coursework
 (about one week) to compute per-player sentiment aggregates, then deleted.
-Author usernames are never stored in the first place. Nothing is cached or
-republished publicly. Deleted or removed Reddit content is not retained: the
-scraper skips [deleted]/[removed] comments at collection time.
+Author usernames are never stored in the first place. Raw responses are cached
+on a local disk only to avoid re-calling the API; nothing is redistributed or
+republished publicly, and the cache is deleted with the coursework data.
+Deleted or removed Reddit content is not retained: the scraper skips
+[deleted]/[removed] comments at collection time and the cache is discarded
+before the final aggregates are produced.
 ```
+
+## Dua alternatif yang beredar — tidak dipakai, ini alasannya
+
+Banyak panduan menyarankan dua jalan pintas. Bedanya: yang pertama **diuji
+langsung** pada 2026-11-12 dari mesin proyek ini; yang kedua **dibaca dari
+dokumentasi resminya** dan tidak dijalankan (alasan tidak dijalankan ada di
+bawah — menjalankannya butuh hak moderator). Hasilnya:
+
+### 1. Endpoint `.json` publik tanpa OAuth — **403, mati**
+
+Yang diuji, tiga User-Agent berbeda (proyek, browser Chrome, gaya Reddit),
+masing-masing dengan jeda 1 detik:
+
+| URL | Hasil |
+|---|---|
+| `https://www.reddit.com/r/soccer/hot.json` | **403** |
+| `https://www.reddit.com/r/soccer/about.json` | **403** |
+| `https://www.reddit.com/r/PremierLeague/search.json?q=...` | **403** |
+| `https://old.reddit.com/r/soccer/hot.json` | **403** |
+
+Mengganti User-Agent tidak mengubah apa pun: yang memblokir bukan User-Agent,
+melainkan ketiadaan token OAuth. Ini sesuai [Reddit Data API Wiki](https://support.reddithelp.com/hc/en-us/articles/16160319875092-Reddit-Data-API-Wiki)
+(update 11 Mei 2026), yang menulis dua hal:
+
+> "Clients must authenticate with a registered OAuth token."
+>
+> "Traffic not using OAuth or login credentials will be blocked, and the default
+> rate limit will not apply."
+
+Dan soal User-Agent, aturannya justru tegas: *"NEVER lie about your User-Agent."*
+Menyamar sebagai browser bukan sekadar tidak membantu, tapi melanggar ketentuan —
+juga melanggar AGENTS.md ("cari jalan pintas" dilarang). Memalsukan UA dan tetap
+kena 403 menunjukkan klaim "cukup header User-Agent kustom" tidak lagi berlaku.
+Cara ini **tidak dipakai** dan tidak akan dipakai.
+
+Catatan: jawaban 403 di halaman ini sempat dikira bukti "subreddit tidak ada" —
+bukan. 403 adalah blokir anonim, seperti yang sudah dicatat di `config/config.yaml`.
+
+### 2. Devvit — **bukan pengganti, dan tidak bisa dipakai untuk proyek ini**
+
+Devvit memang menghapus kebutuhan client_id untuk *app yang berjalan di dalam
+Reddit*. Tapi tiga syaratnya mematikan untuk kasus ini:
+
+1. **App harus terpasang di subreddit yang kamu moderasi.** Perintah resminya:
+   `npx devvit install <subreddit>` — "Install an app from the Apps directory to a
+   subreddit that **you moderate**" ([Devvit CLI](https://developers.reddit.com/docs/guides/tools/devvit_cli)).
+   Kami tidak memoderasi r/soccer, r/PremierLeague, atau 20 subreddit klub.
+2. **Itu platform JS/TypeScript yang di-host Reddit**, bukan jalan untuk menarik
+   data keluar ke pipeline Python. Devvit mengeksekusi kode *di dalam* Reddit.
+3. **API-nya berlingkup subreddit tempat app terpasang.** `reddit.searchPosts()`
+   tanpa `subredditName` memang mencari di `all` ([Reddit API Overview](https://developers.reddit.com/docs/capabilities/server/reddit-api)),
+   tapi app tetap harus diinstal pada satu subreddit dulu, dan datanya harus
+   dikeluarkan lewat endpoint app sendiri — satu lapisan tambahan yang tetap
+   harus patuh kebijakan yang sama.
+
+Satu hal yang benar dari saran itu: Devvit **tidak** butuh `prefs/apps`. Tapi
+menggantikan kebutuhan client_id dengan kebutuhan hak moderator bukan kemajuan.
+
+**Kesimpulan:** satu-satunya jalan yang sah dan berfungsi adalah formulir Data API
+di bawah. Kedua alternatif di atas tidak dipakai, dan alasannya dicatat di sini
+supaya tidak ada yang mengulanginya.
 
 ## Kalau disetujui
 
