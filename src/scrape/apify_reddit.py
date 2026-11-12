@@ -156,6 +156,24 @@ class ApifyClient:
         # Poll the run status; the API has no blocking wait for arbitrary actors.
         import time
 
+        try:
+            return self._await_run(run_id, dataset_id, timeout_s)
+        except BaseException:
+            # Ctrl-C or a kill must not leave the actor billing in the background:
+            # an interrupted local run kept a RUNNING actor alive and spent more.
+            self.abort_run(run_id)
+            raise
+
+    def abort_run(self, run_id: str) -> None:
+        try:
+            self._session.post(f"{API}/actor-runs/{run_id}/abort", timeout=60)
+            log.warning("aborted actor run %s", run_id)
+        except Exception as exc:  # best effort: never mask the original error
+            log.error("could not abort actor run %s: %s", run_id, exc)
+
+    def _await_run(self, run_id: str, dataset_id: str, timeout_s: int) -> dict:
+        import time
+
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
             status = self._get(f"/actor-runs/{run_id}")["data"]["status"]

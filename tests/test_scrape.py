@@ -610,6 +610,35 @@ class ApifyProviderTests(unittest.TestCase):
         relative = self._map([self._comment(permalink="/r/NUFC/comments/p1/x/c1/")])
         self.assertEqual(relative[0].url, "https://www.reddit.com/r/NUFC/comments/p1/x/c1/")
 
+    def test_interrupted_run_aborts_the_actor(self):
+        # A kill must not leave the actor billing in the background.
+        class Aborts(apify_reddit.ApifyClient):
+            def __init__(self, *a, **kw):
+                self.aborted = []
+                self._props = {"searchQuery"}
+                self._session = None
+
+            def _await_run(self, run_id, dataset_id, timeout_s):
+                raise KeyboardInterrupt
+
+            def abort_run(self, run_id):
+                self.aborted.append(run_id)
+
+            def _get(self, path, params=None):
+                return {"data": {"id": "run-1", "defaultDatasetId": "ds-1"}}
+
+        class Resp:
+            status_code = 201
+
+            def json(self):
+                return {"data": {"id": "run-1", "defaultDatasetId": "ds-1"}}
+
+        client = Aborts()
+        client._session = type("S", (), {"post": lambda *a, **kw: Resp()})()
+        with self.assertRaises(KeyboardInterrupt):
+            client.run_actor({"searchQuery": "x"})
+        self.assertEqual(client.aborted, ["run-1"])
+
     def test_credit_guard_blocks_before_any_request(self):
         # A cap larger than the real balance used to be fictional: the run died
         # at the payment step mid-list instead of up front.
