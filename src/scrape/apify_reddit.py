@@ -98,6 +98,20 @@ class ApifyClient:
             raise ApifyError(f"GET {path} -> HTTP {resp.status_code}: {resp.text[:200]}")
         return resp.json()
 
+    def credit_remaining(self, free_credits_usd: float = 5.0) -> float | None:
+        """Dollars left in the current monthly cycle, or None if unreadable.
+
+        The config cap is a promise to the team; this is the fact. Without it a
+        cap can be larger than the balance and every run dies at the payment
+        step halfway through a player list.
+        """
+        try:
+            data = self._get("/users/me/limits")["data"]["current"]
+        except (ApifyError, KeyError):
+            return None
+        used = float(data.get("monthlyUsageUsd") or 0.0)
+        return round(max(free_credits_usd - used, 0.0), 2)
+
     def input_properties(self) -> set[str]:
         """Property names the actor's published build actually accepts.
 
@@ -398,6 +412,13 @@ def run(
         )
 
     client = client or ApifyClient()
+    remaining = client.credit_remaining() if hasattr(client, "credit_remaining") else None
+    if remaining is not None and est["usd"] > remaining:
+        raise SystemExit(
+            f"estimated ${est['usd']} but only ${remaining} Apify credit remains this "
+            "cycle. Reduce the player count or max_posts_per_player; raising "
+            "max_cost_usd will not create credit."
+        )
     index = AliasIndex.build(players)
     window = epoch_window()
     min_words = int(load_config()["text_sources"]["reddit"].get("min_words", 8))

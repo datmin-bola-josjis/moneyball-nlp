@@ -264,7 +264,8 @@ bergantung pada Apify.
          enabled: true
    ```
 
-3. Cek biaya dulu, tanpa menjalankan apa pun:
+3. Cek biaya dulu, tanpa menjalankan apa pun. Perintah ini juga membaca sisa
+   kredit dari API Apify, bukan dari asumsi:
 
    ```bash
    python -m src.scrape.run --provider apify --estimate-cost
@@ -285,11 +286,29 @@ hingga `max_comments_per_post` dari *setiap* post yang ia kembalikan, jadi
 biayanya = pemain × post × komentar per post. Setelan awal 5 post × 12 komentar
 memberi kuota 60 teks per pemain (sesuai PRD) dengan estimasi:
 
+Angka di bawah memakai setelan terukur (`max_posts_per_player: 15`), bukan
+tebakan. Harga tier gratis: $0.003/run + $0.00115/post + $0.00075/komentar.
+
 | Cakupan | Post | Komentar | Estimasi |
 |---|---|---|---|
-| pilot 3 pemain | 15 | 180 | **$0.16** |
-| pilot 20 pemain | 100 | 1.200 | **$1.07** |
-| sampel penuh 70 | 350 | 4.200 | **$3.76** |
+| pilot 3 pemain | 45 | 540 | **$0.47** |
+| pilot 20 pemain | 300 | 3.600 | **$3.10** |
+| sampel penuh 70 | 1.050 | 12.600 | **$10.87** |
+
+**Kredit gratis Apify hanya $5 per siklus.** Pemakaian per 2026-11-12: **$0.511**,
+sisa **$4.49**. Artinya jalur ini hanya sanggup sekitar **25 pemain**, bukan 70 —
+`max_cost_usd` di config disetel `4.0` dan script menolak jalan kalau estimasi
+melebihi sisa kredit (dibaca langsung dari API, bukan diasumsikan).
+
+**Hasil panen yang terukur** (15 post, `sort: top`, `timeFilter: year`):
+
+- hanya **35%** item yang dikembalikan jatuh di dalam musim (207/585);
+- 8/15 post dan 81 komentar in-season per pemain;
+- tetapi hanya **~13 komentar per pemain** yang benar-benar menyebut pemain itu.
+
+13 komentar menempatkan hampir semua pemain di **`bukti terbatas` (10-29)**, bukan
+`bukti cukup` (>=30). Konsekuensinya harus ditulis di laporan: tabel kandidat
+undervalued praktis kosong untuk ambang PRD §11.
 
 `max_cost_usd` di config adalah pagar keras: kalau estimasi melewatinya, script
 berhenti sebelum satu request pun dikirim. Menaikkan `maxCommentsPerPost` ke 100

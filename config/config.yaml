@@ -118,9 +118,9 @@ text_sources:
     # docs/decisions.md). Nonaktif secara default; OAuth adalah jalur utama.
     apify:
       enabled: true             # diaktifkan 2026-11-12 atas keputusan tim (lihat docs/decisions.md)
-      max_posts_per_player: 15  # kuota 60 teks/pemain tercapai lewat 5 post x 12 komentar
+      max_posts_per_player: 15  # dinaikkan dari 5: yield terukur ~13 teks/pemain pada 15 post
       max_comments_per_post: 12 # actor menagih per komentar PER POST, bukan per pemain
-      max_cost_usd: 12.9         # pagar biaya; estimasi dicetak sebelum jalan (70 pemain = $10.87)
+      max_cost_usd: 4.0         # pagar biaya TIDAK boleh melebihi sisa kredit Apify ($4.49 dari $5 gratis); 70 pemain butuh $10.87, jadi cap ini hanya cukup untuk ~25 pemain
       # Pencarian Reddit hanya punya jendela WAKTU RELATIF (jam/hari/pekan/bulan/
       # tahun/semua), tidak bisa menyasar 2025-07..2026-05 secara langsung.
       # "year" dari Nov 2026 = Nov 2025..Nov 2026, yaitu irisan terbesar musim

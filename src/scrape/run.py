@@ -104,6 +104,13 @@ def main(argv: list[str] | None = None) -> int:
             f"~{est['comments']} comments -> ${est['usd']:.2f} "
             f"(cap ${apify_cfg.get('max_cost_usd')})"
         )
+        try:
+            remaining = apify_reddit.ApifyClient().credit_remaining()
+        except SystemExit:
+            remaining = None  # no token configured; the estimate above still stands
+        if remaining is not None:
+            verdict = "ok" if est["usd"] <= remaining else "NOT ENOUGH CREDIT"
+            print(f"apify credit remaining this cycle: ${remaining:.2f} -> {verdict}")
         return 0
 
     if args.pilot:

@@ -32,7 +32,7 @@ Format tanggal: `YYYY-MM-DD`. Jangan hapus baris lama — tambahkan baris baru d
 
 | Tanggal | Ambang | Dari | Ke | Alasan (wajib, dengan angka) |
 |---|---|---|---|---|
-| 2026-11-12 | Cakupan aktor Apify | 15 post, `timeFilter: year`, `sort: top` | Diukur pada pilot: hanya 35% item yang dikembalikan jatuh di dalam musim (207/585); `timeFilter: all` mengembalikan saga transfer Jun-Okt 2026 yang seluruhnya gugur. Dengan 15 post: 8/15 post dan 81 komentar in-season, tetapi hanya ~13 komentar per pemain yang menyebut pemain itu. Artinya hampir semua pemain akan berlabel `bukti terbatas` (10-29), bukan `bukti cukup` (>=30). Biaya terukur: $0.155/pemain, 70 pemain = $10.87. |
+| 2026-11-12 | Cakupan aktor Apify (`max_posts_per_player`, `timeFilter`, `sort`) | 5 post, `timeFilter: all` | 15 post, `timeFilter: year`, `sort: top` | Diukur pada pilot: hanya 35% item yang dikembalikan jatuh di dalam musim (207/585); `timeFilter: all` mengembalikan saga transfer Jun-Okt 2026 yang seluruhnya gugur. Dengan 15 post: 8/15 post dan 81 komentar in-season, tetapi hanya ~13 komentar per pemain yang menyebut pemain itu. Artinya hampir semua pemain akan berlabel `bukti terbatas` (10-29), bukan `bukti cukup` (>=30). Biaya terukur: $0.155/pemain, 70 pemain = $10.87 - melebihi sisa kredit Apify, jadi jalur ini hanya sanggup ~20 pemain. |
 | — | — | — | — | — |
 
 ## Keputusan yang masih menggantung

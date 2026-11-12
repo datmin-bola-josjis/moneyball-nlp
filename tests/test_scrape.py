@@ -610,6 +610,42 @@ class ApifyProviderTests(unittest.TestCase):
         relative = self._map([self._comment(permalink="/r/NUFC/comments/p1/x/c1/")])
         self.assertEqual(relative[0].url, "https://www.reddit.com/r/NUFC/comments/p1/x/c1/")
 
+    def test_credit_guard_blocks_before_any_request(self):
+        # A cap larger than the real balance used to be fictional: the run died
+        # at the payment step mid-list instead of up front.
+        cfg = apify_reddit.load_config()
+        apify_cfg = cfg["text_sources"]["reddit"]["apify"]
+        original = dict(apify_cfg)
+        apify_cfg.update(
+            {"enabled": True, "max_posts_per_player": 15, "max_comments_per_post": 12,
+             "max_cost_usd": 100.0}
+        )
+
+        class Broke(apify_reddit.ApifyClient):
+            def __init__(self, *a, **kw):
+                pass
+
+            def credit_remaining(self, free_credits_usd=5.0):
+                return 0.01
+
+        try:
+            with self.assertRaises(SystemExit) as ctx:
+                apify_reddit.run([BRUNO_G], client=Broke())
+            self.assertIn("credit", str(ctx.exception).lower())
+        finally:
+            apify_cfg.update(original)
+
+    def test_cost_estimate_matches_the_published_prices(self):
+        # 1 player, 15 posts, 12 comments each.
+        est = apify_reddit.estimate_cost(1, 15, 12)
+        expected = (
+            apify_reddit.PRICE_START
+            + 15 * apify_reddit.PRICE_PER_POST
+            + 180 * apify_reddit.PRICE_PER_COMMENT
+        )
+        self.assertAlmostEqual(est["usd"], round(expected, 2), places=2)
+        self.assertEqual(est["comments"], 180)
+
     def test_token_is_sent_as_bearer_not_query_param(self):
         # A token in the query string leaks into request logs; the first live
         # run printed it into verbose output that way.
