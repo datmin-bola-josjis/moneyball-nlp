@@ -259,6 +259,39 @@ sudah diukur (biaya, yield, jebakan skema), berguna kalau sumber teks legal
 lainnya nanti butuh perbandingan. **Jangan dijalankan tanpa keputusan tim baru
 yang tertulis di `docs/decisions.md`.**
 
+### Data yang sempat didapat — dan kenapa tidak dipakai
+
+Hasil pilot **tidak bisa dipakai Stage C**, karena tiga alasan yang harus
+dibedakan dengan jelas:
+
+1. **ID pemain tidak cocok.** Pilot memakai `p_bruno_g`, `p_burn`, `p_murphy`
+   dari daftar yang saya susun sendiri. Sampel terkunci A memakai `fotmob_*`
+   untuk 70 pemain. Irisannya **kosong**, jadi tidak ada satu pun baris pilot
+   yang bisa di-join lewat `player_id` (aturan 4).
+2. **Satuan tidak boleh dijumlahkan.** Tiap komentar disimpan dua kali: satu
+   `unit_type=comment` dan satu atau lebih `unit_type=sentence`. Angka "76 unit"
+   adalah comment + sentence, bukan 76 komentar unik. Komentar uniknya: **36**.
+   Stage D menilai di level kalimat, stage B melaporkan volume per komentar -
+   keduanya tidak boleh digabung menjadi satu angka.
+3. **Volumenya jauh di bawah ambang.** Bahkan bagian yang bisa diselamatkan
+   (payload `pilot25` yang memakai pemain asli) hanya menghasilkan **12 komentar
+   dari 2 pemain** (Matz Sels 10, Bernd Leno 2). Itu `bukti terbatas`, dan dua
+   pemain tidak cukup untuk apa pun.
+
+| Direktori | Komentar | Kalimat | Status |
+|---|---|---|---|
+| `pilot1-...065249` | 0 | 0 | bug `searchQueries`, tidak ada hasil |
+| `pilot1-...065343` | 3 | 4 | ID karangan |
+| `pilot1-...065654` | 7 | 7 | ID karangan |
+| `pilot1-...065753` | 13 | 15 | ID karangan |
+| `pilot3-...064623` | 0 | 0 | bug `searchQueries` |
+| `pilot3-...065449` | 5 | 5 | ID karangan |
+| `pilot3-...065449` (ulang) | 8 | 9 | ID karangan |
+| `pilot25-...074626` | 0 | 0 | run dihentikan di 4/25 |
+
+Yang tersimpan murni untuk audit: **36 komentar + 40 kalimat** dari 3 pemain
+karangan, plus 1.078 item mentah (sudah disanitasi dari username).
+
 ### Biaya yang sudah keluar (tidak terulang)
 
 $0.8717 dari kredit gratis $5, sisa $4.128 — 6 run pilot yang selesai plus satu

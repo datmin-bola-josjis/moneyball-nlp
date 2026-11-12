@@ -568,6 +568,23 @@ class ApifyProviderTests(unittest.TestCase):
         self.assertTrue(records)
         self.assertEqual(records[0].engagement, 0)
 
+    def test_author_identity_never_reaches_disk(self):
+        # AGENTS.md rule 11: no commenter username is stored.
+        payload = [
+            self._comment(author="some_real_username"),
+            self._post(author="another_user"),
+        ]
+        cleaned = apify_reddit.scrub_identity(payload)
+        self.assertTrue(all("author" not in item for item in cleaned))
+        self.assertTrue(all("authorId" not in item for item in cleaned))
+        # everything else survives
+        self.assertEqual(cleaned[0]["body"], payload[0]["body"])
+
+    def test_bot_filter_still_runs_before_scrubbing(self):
+        # Scrubbing happens at persist time, so bot detection still has the name.
+        bot = self._comment(author="AutoModerator")
+        self.assertEqual(self._map([bot]), [])
+
     def test_empty_and_malformed_items_are_ignored(self):
         items = [{}, {"type": "weird"}, {"type": "post"}]
         self.assertEqual(self._map(items), [])

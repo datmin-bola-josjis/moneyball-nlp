@@ -249,6 +249,22 @@ def _utc(value: str | None) -> float:
 _DELETED = {"[deleted]", "[removed]"}
 
 
+# Fields that carry a commenter's identity. AGENTS.md rule 11: never store the
+# username or personal data of a comment author.
+_IDENTITY_FIELDS = ("author", "authorId", "authorFlair", "author_fullname", "distinguished")
+
+
+def scrub_identity(items: list[dict]) -> list[dict]:
+    """Drop author identity from an actor payload before it is persisted.
+
+    The raw dataset is kept for audit, which is exactly where a username would
+    otherwise survive forever - 502 distinct usernames were stored before this
+    existed. Bot detection still works because `is_bot_like` runs during mapping,
+    before anything is written.
+    """
+    return [{k: v for k, v in item.items() if k not in _IDENTITY_FIELDS} for item in items]
+
+
 def _absolute(permalink: str | None) -> str:
     """The actor returns an absolute permalink; the comment path returns a path.
 
@@ -455,9 +471,6 @@ def run(
         )
         result = client.run_actor(actor_input)
         items = client.dataset_items(result["dataset_id"])
-        (raw_dir / f"{player.player_id}.items.json").write_text(
-            json.dumps(items, indent=2), encoding="utf-8"
-        )
         records = records_from_items(
             items,
             player,
@@ -467,6 +480,11 @@ def run(
             league_clubs=league_clubs,
             club_subreddits=player_club_subreddits(player),
             quota=quota,
+        )
+        # Written after mapping (which needs `author` for bot filtering) and
+        # scrubbed so no username reaches disk (rule 11).
+        (raw_dir / f"{player.player_id}.items.json").write_text(
+            json.dumps(scrub_identity(items), indent=2), encoding="utf-8"
         )
         per_player[player.name] = sum(1 for r in records if r.unit_type == "comment")
         all_records.extend(records)
