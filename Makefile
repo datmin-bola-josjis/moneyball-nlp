@@ -3,15 +3,22 @@
 # Target: `make pipeline` runs the whole thing, raw data to output.
 # Stages are runnable individually so a failure is cheap to isolate.
 
-PYTHON ?= python3
+# Prefer the project venv when it exists, so `make` and manual runs agree.
+# Override with `make test PYTHON=python3`.
+VENV := .venv
+PYTHON ?= $(if $(wildcard $(VENV)/bin/python),$(VENV)/bin/python,python3)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup check config sample population scrape link nlp score viz pipeline test clean
+.PHONY: help setup venv check config sample population scrape link nlp score viz pipeline test clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-setup: ## Install dependencies from requirements.txt
+venv: ## Create the project virtualenv at .venv
+	python3 -m venv $(VENV)
+	$(VENV)/bin/python -m pip install --upgrade pip
+
+setup: ## Install dependencies (uses .venv when present)
 	$(PYTHON) -m pip install -r requirements.txt
 
 check: config ## Validate config and run tests
