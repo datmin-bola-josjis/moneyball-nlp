@@ -1,9 +1,10 @@
 """Population reader for Stage B.
 
-The player list is owned by person A: ``data/processed/players.parquet`` (or a
-CSV twin while pyarrow is missing). Stage B must never invent players - the
-population comes from structured roster data (AGENTS.md rule 1), so a missing
-file is a hard error naming the deliverable, not a silent fallback.
+The player list is owned by person A. Stage B reads the **locked text sample**
+at ``data/processed/text_sample.parquet`` - the file whose immutability makes the
+report auditable (AGENTS.md rule 14), not the wider roster. Stage B must never
+invent players (rule 1), so a missing file is a hard error naming the
+deliverable, not a silent fallback.
 """
 
 from __future__ import annotations
@@ -17,7 +18,10 @@ import pandas as pd
 
 from src.config import ROOT
 
-DEFAULT_PLAYERS = ROOT / "data" / "processed" / "players.parquet"
+DEFAULT_PLAYERS = ROOT / "data" / "processed" / "text_sample.parquet"
+# Earlier filename produced by `src.population.build`; accepted when the locked
+# sample has not been generated yet, so A's two outputs both work.
+ROSTER_FALLBACK = ROOT / "data" / "processed" / "players.parquet"
 _NOSEP = re.compile(r"[^a-z0-9]")
 
 
@@ -68,19 +72,26 @@ def club_needles(club: str | None, league_clubs: Iterable[str] = ()) -> tuple[st
 
 
 def _alias_list(value) -> list[str]:
+    """Aliases arrive as a pipe-separated string, a list, or a numpy array."""
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return []
     if isinstance(value, str):
         return [part.strip() for part in value.split("|") if part.strip()]
-    return [str(part).strip() for part in value if str(part).strip()]
+    try:
+        items = list(value)
+    except TypeError:
+        return [str(value).strip()]
+    return [str(part).strip() for part in items if str(part).strip()]
 
 
-def load_players(path: Path | str = DEFAULT_PLAYERS) -> list[Player]:
+def load_players(path: Path | str | None = None) -> list[Player]:
+    if path is None:
+        path = DEFAULT_PLAYERS if DEFAULT_PLAYERS.exists() else ROSTER_FALLBACK
     path = Path(path)
     if not path.exists():
         raise SystemExit(
             f"population file not found: {path}\n"
-            "Stage B reads the player list from A (data/processed/players.parquet). "
+            "Stage B reads A's locked sample (data/processed/text_sample.parquet). "
             "Do not build a player list out of scraped text (AGENTS.md rule 1)."
         )
     if path.suffix == ".parquet":
@@ -116,12 +127,14 @@ def load_players(path: Path | str = DEFAULT_PLAYERS) -> list[Player]:
     return players
 
 
-def market_values(path: Path | str = DEFAULT_PLAYERS) -> dict[str, float]:
+def market_values(path: Path | str | None = None) -> dict[str, float]:
     """Market value per `player_id`, when the population file carries the column.
 
     Only used to spread the pilot across the price range; it never filters the
     population (AGENTS.md rule 15).
     """
+    if path is None:
+        path = DEFAULT_PLAYERS if DEFAULT_PLAYERS.exists() else ROSTER_FALLBACK
     path = Path(path)
     if not path.exists():
         return {}

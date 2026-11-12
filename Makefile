@@ -3,12 +3,17 @@
 # Target: `make pipeline` runs the whole thing, raw data to output.
 # Stages are runnable individually so a failure is cheap to isolate.
 
-# `python3` on Windows is a Microsoft Store alias that fails when run, so the
-# interpreter is probed instead of assumed.
-PYTHON ?= $(shell python3 -c "print(1)" >/dev/null 2>&1 && echo python3 || echo python)
+# Interpreter: project venv first, then `python3`, then `python`.
+# `python3` on Windows is a Microsoft Store alias that fails when run, so it is
+# probed instead of assumed; `make test PYTHON=python` overrides.
+VENV := .venv
+PYTHON ?= $(shell \
+  if [ -x "$(VENV)/bin/python" ]; then echo "$(VENV)/bin/python"; \
+  elif python3 -c "print(1)" >/dev/null 2>&1; then echo python3; \
+  else echo python; fi)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup check config population scrape scrape-verify scrape-pilot review review-score link nlp score viz pipeline test clean
+.PHONY: help setup venv check config sample metrics fetch-players lock-sample population scrape scrape-verify scrape-pilot review review-score link nlp score viz pipeline test clean
 
 # pytest is preferred, but the suite is plain unittest, so a machine where
 # `make setup` has not run yet can still verify the code.
@@ -21,20 +26,30 @@ endif
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-setup: ## Install dependencies from requirements.txt
+venv: ## Create the project virtualenv at .venv
+	python3 -m venv $(VENV)
+	$(VENV)/bin/python -m pip install --upgrade pip
+
+setup: ## Install dependencies (uses .venv when present)
 	$(PYTHON) -m pip install -r requirements.txt
 
 check: config ## Validate config and run tests
 	$(TEST_CMD)
 
-config: ## Validate config/config.yaml parses and has expected shape
-	$(PYTHON) -c "import yaml; d = yaml.safe_load(open('config/config.yaml')); assert len(d) == 11, f'expected 11 top-level keys, got {len(d)}'; print('config ok:', len(d), 'sections')"
+config: ## Validate config/config.yaml parses and keeps its invariants
+	$(PYTHON) -m src.validate_config
 
 # ---------------------------------------------------------------- Stages
 # Each stage reads from data/ and writes to data/, never overwriting raw input.
 
-population: ## Stage A - build player population and lock the text sample
-	$(PYTHON) -m src.population.build
+fetch-players: ## Stage A - fetch one FotMob payload per player (cached, resumable)
+	$(PYTHON) -m src.population.fetch_players
+
+population: ## Stage A - build players.parquet and the text sample (dry run)
+	$(PYTHON) -m src.population.run_population
+
+lock-sample: ## Stage A - same as population, then lock the sample file
+	$(PYTHON) -m src.population.run_population --lock
 
 scrape: ## Stage B - retrieve texts per player (reddit, youtube, article)
 	$(PYTHON) -m src.scrape.run
@@ -56,6 +71,9 @@ link: ## Stage C - entity linking and text filtering
 
 nlp: ## Stage D - sentiment and aspect extraction
 	$(PYTHON) -m src.nlp.analyze
+
+metrics: ## Stage A/E - numeric metrics, ratings and positional z-scores
+	$(PYTHON) -m src.score.run_metrics
 
 score: ## Stage E - text quality score, validation, candidate flagging
 	$(PYTHON) -m src.score.rank
