@@ -34,8 +34,13 @@ def env(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
         raise SystemExit(
-            f"missing {name} in .env - copy .env.example, fill the Reddit app "
-            "credentials, then rerun. Stage B cannot run without them."
+            f"missing {name} in .env.\n"
+            "Reddit closed self-service app creation in Nov 2025 - opening "
+            "https://www.reddit.com/prefs/apps only redirects to the Responsible "
+            "Builder Policy. Data API access is now a manual request:\n"
+            "  https://support.reddithelp.com/hc/en-us/requests/new"
+            "?ticket_form_id=14868593862164\n"
+            "See docs/tahap-b-reddit.md for the answers to paste and the fallback plan."
         )
     return value
 

@@ -1,0 +1,148 @@
+# Tahap B — Akses Reddit (permohonan manual)
+
+Status: **terbuka, tenggat Hari 1.** Ini risiko nomor satu di [`PLAN-1WEEK.md`](../docs/PLAN-1WEEK.md) §6 dan sudah disebut di PRD §12: "Akses Reddit macet (persetujuan API lama)".
+
+## Masalahnya
+
+Sejak November 2025 Reddit menutup pembuatan aplikasi mandiri. Membuka <https://www.reddit.com/prefs/apps> lalu menekan "create app" tidak lagi memunculkan form; yang muncul tombol yang mengarah ke:
+
+> "In order to create an application or use our API you can read our full policies here: …/Responsible-Builder-Policy"
+
+Sumber: [Reddit for Developers FAQ](https://developers.reddit.com/docs/guides/faq) — script/bot eksternal harus lewat Data API, dan "Access requires approval under the Responsible Builder Policy". Tidak ada jumlah percobaan ulang yang mengubah ini.
+
+Konsekuensi untuk proyek: `REDDIT_CLIENT_ID` dan `REDDIT_CLIENT_SECRET` **tidak bisa** diperoleh hari ini. Kode Tahap B tetap jalan begitu kredensial ada; tidak ada perubahan kode yang dibutuhkan untuk mengakomodasi proses baru ini.
+
+## Yang harus dilakukan (Hari 1, malam ini)
+
+Kirim satu tiket lewat formulir resmi:
+
+<https://support.reddithelp.com/hc/en-us/requests/new?tf_42139884615700=api_request_type_developer_clone&ticket_form_id=14868593862164>
+
+Pilih jenis **Developer**. Jangan pilih *Researcher* (menuntut afiliasi universitas resmi + dokumen etik/IRB yang tidak ada dalam 1 minggu) dan jangan *Enterprise* (kontrak berbayar).
+
+### Jawaban yang diisi
+
+Isi apa adanya — jangan mengarang. Kalau ada yang tidak sesuai kenyataan, ubah kalimatnya, jangan ubah faktanya.
+
+**App name**
+```
+moneyball-nlp
+```
+
+**Use case description** (field yang menentukan; sebut apa, bagaimana, di mana)
+```
+moneyball-nlp is a one-week university coursework project (Data Mining, semester 5,
+team of four). It reads public posts and comments from a fixed whitelist of Premier
+League subreddits to measure how players are discussed in text, then compares that
+signal against public performance and market-value data. Strictly read-only: it
+never posts, comments, votes, messages, or moderates.
+
+Access is used to search posts and read comment threads for a fixed list of about
+70 players, each query scoped to one player name, one subreddit, and a fixed date
+window (1 July 2025 - 31 May 2026). Comments are split into sentences for
+sentiment analysis. Comment author usernames are never stored or published; only
+aggregate per-player statistics appear in the coursework report. Raw text is not
+redistributed - only aggregates and the analysis code are shared with the course
+instructor. No model training on Reddit content, no commercial use, no resale.
+```
+
+**Data / API actions requested** (batasi ke read-only; jangan minta lebih)
+```
+Read-only: subreddit metadata (about), search posts within a subreddit (search),
+and comment listings (comments). No write actions.
+OAuth scope: read.
+```
+
+**Subreddits you will access**
+```
+r/soccer, r/PremierLeague plus the club subreddits of the 20 Premier League clubs 2025/26:
+r/Gunners,
+r/avfc,
+r/AFCBournemouth,
+r/Brentford,
+r/BrightonHoveAlbion,
+r/Burnley,
+r/chelseafc,
+r/crystalpalace,
+r/Everton,
+r/fulhamfc,
+r/LeedsUnited,
+r/LiverpoolFC,
+r/MCFC,
+r/reddevils,
+r/NUFC,
+r/nffc,
+r/safc,
+r/coys,
+r/Hammers,
+r/WWFC.
+No other subreddits.
+```
+
+**Expected request volume**
+```
+Low: under 1,500 requests total for the whole week, spaced at least one second
+apart, with on-disk caching so repeated runs re-read local files instead of
+calling the API again.
+```
+
+**Platform / app type**
+```
+Script app - personal, server-side, runs locally on my own machine. Not
+distributed to other users.
+```
+
+**Redirect URI** (wajib diisi walau tidak dipakai)
+```
+http://localhost:8080
+```
+
+**Commercial use?**
+```
+No. Non-commercial university coursework. No monetization of any kind.
+```
+
+**Data deletion / retention**
+```
+Comment text is retained locally only for the duration of the coursework
+(about one week) to compute per-player sentiment aggregates, then deleted.
+Author usernames are never stored in the first place. Nothing is cached or
+republished publicly. Deleted or removed Reddit content is not retained: the
+scraper skips [deleted]/[removed] comments at collection time.
+```
+
+## Kalau disetujui
+
+1. Buka <https://www.reddit.com/prefs/apps> — form "create app" muncul lagi setelah akun di-allowlist.
+2. Buat app tipe **script**, redirect `http://localhost:8080`.
+3. Salin `client id` (di bawah nama app) dan `secret` ke `.env`.
+4. `make scrape-verify` lalu lanjut ke pilot.
+
+Catat tanggal persetujuan di [`decisions.md`](decisions.md) saat kredensial masuk.
+
+## Kalau ditolak atau belum ada jawaban sampai Hari 2 pagi
+
+Jangan menunggu. PRD §12 dan PLAN-1WEEK §1 sudah menetapkan jalannya:
+
+> "Keputusan di Hari 1; jika gagal, YouTube + artikel jadi sumber utama dan laporan menyebutnya."
+
+Artinya:
+
+1. **YouTube jadi sumber teks utama** (orang C): komentar + transkrip dari channel whitelist, `playlistItems.list`, bukan `search.list`.
+2. **Artikel scouting jadi sumber kedua** (orang C): `trafilatura`, whitelist domain, tanpa menembus paywall.
+3. **Reddit ditulis di laporan sebagai sumber yang dicoba dan gagal diakses**, beserta tanggal permohonan dan hasilnya. Itu temuan metodologis yang sah, bukan kegagalan yang disembunyikan.
+4. Kode Tahap B tetap di repo dan tetap diuji — kalau izin datang di Hari 5–6, `make scrape-pilot` bisa langsung jalan tanpa menulis ulang apa pun.
+
+Yang **tidak boleh** dilakukan: mencari jalan pintas (scraping lewat `old.reddit.com`, RSS, atau proxy tanpa izin). Itu melanggar ToS dan aturan AGENTS.md bagian "Konvensi kerja".
+
+## Dampak ke jadwal
+
+| Hari | Rencana awal | Kalau akses Reddit macet |
+|---|---|---|
+| 1 | Verifikasi nama subreddit + pilot | Kirim tiket, catat tanggal, alihkan ke YouTube |
+| 2 | Pilot 20 pemain, cek 100 teks | Pilot YouTube + artikel; relevansi diukur di sana |
+| 3 | Scraping penuh | Scraping penuh YouTube |
+| 4 | Cleaning + labeling | Sama, tidak berubah |
+
+Yang bergeser hanya **sumber**, bukan urutan pipeline. Labeling 25 teks per orang
+dan skema tabel tetap di Hari 4.

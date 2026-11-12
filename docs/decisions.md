@@ -38,5 +38,5 @@ Format tanggal: `YYYY-MM-DD`. Jangan hapus baris lama — tambahkan baris baru d
 | Item | Status | Perlu siapa |
 |---|---|---|
 | Porsi kolom numerik agar dataset tetap "dominan string" | terbuka | Dosen |
-| Akses Reddit (persetujuan API) | terbuka, tenggat Hari 1 | B |
+| Akses Reddit (persetujuan API) | **diminta 2026-11-12** lewat formulir Developer; menunggu keputusan. Reddit menutup pembuatan app mandiri sejak Nov 2025, jadi `prefs/apps` tidak bisa dipakai. Kalau belum disetujui sampai Hari 2 pagi: pivot ke YouTube + artikel (PRD §12). Jawaban formulir: [`tahap-b-reddit.md`](tahap-b-reddit.md) | B |
 | Bentuk akhir yang dinilai (laporan / presentasi / demo) | terbuka, tenggat Hari 2 | Semua |

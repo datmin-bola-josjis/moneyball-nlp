@@ -41,7 +41,7 @@ make config             # validates config/config.yaml
 
 Stage B needs credentials that are not in the repository.
 
-- **Reddit:** create a script app at <https://www.reddit.com/prefs/apps>. Unauthenticated requests are rejected, so both the client ID and the secret are needed to verify subreddit names and to scrape.
+- **Reddit:** access is requested, not self-served. Since November 2025 `prefs/apps` only redirects to the Responsible Builder Policy, so the client ID and secret arrive only after the manual request at <https://support.reddithelp.com/hc/en-us/requests/new?ticket_form_id=14868593862164> is approved. [`docs/tahap-b-reddit.md`](docs/tahap-b-reddit.md) has the answers to paste and the fallback plan. Unauthenticated requests are rejected, so both values are required to verify subreddit names and to scrape.
 - **YouTube:** enable YouTube Data API v3 in Google Cloud Console, then create an API key.
 
 `.env` is in `.gitignore` and never committed. Without these credentials stage B cannot run, and stages C to F have no input.
