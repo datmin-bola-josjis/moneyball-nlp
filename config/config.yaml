@@ -1,0 +1,187 @@
+# Konfigurasi proyek — satu-satunya tempat yang boleh menyimpan
+# nama liga, musim, whitelist, dan ambang. Jangan hardcode di kode scraper.
+# Sesuai PRD §17. Setiap perubahan nilai di sini dicatat di docs/decisions.md.
+
+project:
+  name: "pemain-undervalued-epl"
+  semester: "SMT5"
+  course: "Data Mining"
+
+# ---------------------------------------------------------------- A. Populasi
+league:
+  code: "EPL"
+  name: "Premier League"
+  country: "England"
+  season: "2025/26"
+  # Musim berjalan 15 Agustus 2025 - 24 Mei 2026 (Arsenal juara).
+  # Jendela teks dibuka sedikit lebih awal untuk menangkap artikel praseason.
+  season_start: "2025-07-01"     # batas awal teks & statistik
+  season_end: "2026-05-31"       # batas akhir teks & statistik
+  num_clubs: 20
+
+  # 20 klub 2025/26, sudah dicek terhadap klasemen akhir:
+  # promosi = Leeds United, Burnley, Sunderland;
+  # degradasi akhir musim = West Ham, Burnley, Wolves (tetap masuk populasi 2025/26).
+  # Ganti bila `soccerdata` menunjukkan klub berbeda — perbarui di sini, bukan di kode.
+  clubs:
+    - Arsenal
+    - Aston Villa
+    - Bournemouth
+    - Brentford
+    - Brighton
+    - Burnley
+    - Chelsea
+    - Crystal Palace
+    - Everton
+    - Fulham
+    - Leeds United
+    - Liverpool
+    - Manchester City
+    - Manchester United
+    - Newcastle United
+    - Nottingham Forest
+    - Sunderland
+    - Tottenham Hotspur
+    - West Ham United
+    - Wolverhampton Wanderers
+
+population:
+  min_minutes: 900              # filter wajib
+  price_filter_enabled: false   # WAJIB false: teks penentu penuh (PRD §7.A.4)
+  price_percentile_max: null    # hanya dipakai kalau price_filter_enabled: true
+  position_groups: [GK, DEF, MID, FWD]
+
+# -------------------------------------------------------- B. Sampel jalur teks
+text_sample:
+  target_players: 70            # rentang 60-80
+  per_position_group: 17        # 4 x 17 ≈ 68, sesuaikan dengan data aktual
+  min_per_cell: 4               # minimum per (posisi x kuartil harga)
+  stratify_by: market_value_quartile
+  locked: false                 # ubah ke true di Hari 1 setelah file sampel dibuat
+  locked_at: null               # isi tanggal, mis. "2026-11-11"
+  locked_file: "data/processed/text_sample.parquet"
+
+# ------------------------------------------------------- B2. Sumber rating
+validation:
+  rating_source: "fotmob"       # fotmob | fbref — pilih SATU, jangan dicampur
+  tiers: [GK, DEF, MID, FWD]    # z-score dihitung di dalam posisi
+  min_minutes_for_rating: 900
+
+# --------------------------------------------------------- C. Sumber teks
+text_sources:
+  reddit:
+    enabled: true               # putuskan di Hari 1
+    season_window_only: true
+    # CATATAN VERIFIKASI (11 Nov 2026): nama subreddit klub tidak bisa dicek
+    # lewat curl (reddit.com balas 403 ke request tanpa auth — itu blokir,
+    # BUKAN bukti subreddit tidak ada). Yang sudah terkonfirmasi lewat
+    # penelusuran publik: reddevils, coys, nffc, Hammers, safc, WWFC,
+    # BrightonHoveAlbion. Sisanya WAJIB dicek B di Hari 1 lewat API
+    # ber-auth (`/r/<name>/about.json`) sebelum scraping pilot jalan.
+    # Nama salah = scraping kosong dan data hilang tanpa error.
+    subreddits_league:
+      - soccer
+      - PremierLeague
+    subreddits_clubs:
+      Arsenal: [Gunners]
+      AstonVilla: [avfc]
+      Bournemouth: [AFCBournemouth]
+      Brentford: [Brentford]
+      Brighton: [BrightonHoveAlbion]
+      Burnley: [Burnley]
+      Chelsea: [chelseafc]
+      CrystalPalace: [crystalpalace]
+      Everton: [Everton]
+      Fulham: [fulhamfc]
+      LeedsUnited: [LeedsUnited]
+      Liverpool: [LiverpoolFC]
+      ManchesterCity: [MCFC]
+      ManchesterUnited: [reddevils]
+      NewcastleUnited: [NUFC]
+      NottinghamForest: [nffc]
+      Sunderland: [safc]
+      TottenhamHotspur: [coys]
+      WestHamUnited: [Hammers]
+      WolverhamptonWanderers: [WWFC]
+    max_texts_per_player: 60
+    min_words: 8                # PRD §7.C: >= 8-10 kata
+    max_pages_per_query: 3
+
+  youtube:
+    enabled: true
+    use_playlist_items: true    # WAJIB true: search.list mahal kuotanya
+    max_texts_per_player: 40
+    include_transcript: true    # turunkan ke false kalau kuota/waktu habis
+    min_words: 8
+    channels:                   # whitelist — sesuaikan, maksimal 10 channel
+      - name: "The Overlap"
+      - name: "Tifo Football"
+      - name: "The Athletic FC"
+      - name: "Sky Sports Premier League"
+      - name: "Premier League"
+
+  article:
+    enabled: false               # bonus, bukan wajib (PLAN-1WEEK §1)
+    min_name_mentions: 3         # PRD §7.B: >= 3 kali di isi
+    domains:                     # whitelist 5-10 situs
+      - theathletic.com
+      - fifa.com
+      - whoscored.com
+      - theguardian.com
+      - bbc.co.uk
+    respect_paywall: true
+
+  twitter:
+    enabled: false               # default dilewati (PRD §16)
+
+retrieval:
+  require_english: true
+  dedupe_by: [text_clean_hash, url]
+  drop_bots: true
+  per_summary_period_days: 14    # AGE: agregasi per periode, bukan per laga
+
+# --------------------------------------------- D. NLP
+nlp:
+  sentiment_model: "vader"      # vader | hf:<model-id>  (positif/negatif/compound)
+  min_confidence: 0.05
+  aspect_method: "keyword_dict" # hanya kamus di fase 1 minggu
+  aspects:
+    finishing: [finish, finishing, goal, goals, clinical, shoot, shot, header, tap-in]
+    passing: [pass, passing, assist, assists, through ball, vision, cross, crossing]
+    defending: [defend, defending, tackle, interception, block, marking, clearance]
+    stamina: [stamina, engine, fitness, intensity, work rate, pressing, box-to-box]
+    dribbling: [dribble, dribbling, carry, touch, first touch, beat his man]
+    pace: [pace, speed, fast, quick, acceleration]
+    positioning: [positioning, position, off the ball, movement, runs]
+    mentality: [mentality, leader, attitude, composure, decision, consistent]
+  # kata sifat/kata kerja negasi dicatat manual di kamus slang, lihat docs/decisions.md
+
+# --------------------------------------------- E. Skoring & validasi
+scoring:
+  source_weights:               # bobot kepercayaan per sumber
+    reddit: 1.0
+    youtube: 0.8
+    article: 1.5
+  confidence_shrinkage_k: 10    # pemain dengan teks sedikit ditarik ke 0
+  min_texts: 10                 # < 10 -> "bukti tidak cukup"
+  limited_texts_max: 29         # 10-29 -> "bukti terbatas"
+  position_relevance:
+    GK: [positioning, mentality, passing]
+    DEF: [defending, positioning, passing, pace, mentality]
+    MID: [passing, stamina, dribbling, positioning, mentality]
+    FWD: [finishing, dribbling, pace, positioning, mentality]
+
+thresholds:                     # nilai awal, ubah + catat di docs/decisions.md
+  text_quality_percentile: 75   # >= p75 di posisinya
+  market_value_percentile: 40   # <= p40 di posisinya
+  buzz_percentile_hidden_gem: 40
+  buzz_percentile_overhyped: 75
+  validation: above_median      # rating z-score > median posisi
+  bootstrap_iterations: 1000    # interval kepercayaan persentil
+
+output:
+  top_n_candidates: 20
+  table_n: 20
+  figures_dir: "reports/figures"
+  report_file: "reports/laporan.md"
+  dashboard: false              # aktifkan hanya kalau dosen minta demo
