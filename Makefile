@@ -13,7 +13,7 @@ PYTHON ?= $(shell \
   else echo python; fi)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup venv check config sample metrics fetch-players lock-sample population scrape scrape-verify scrape-pilot review review-score link nlp score viz pipeline test clean
+.PHONY: help setup venv check config sample metrics fetch-players lock-sample population scrape scrape-verify scrape-pilot scrape-arctic review review-score link nlp score viz pipeline test clean
 
 # pytest is preferred, but the suite is plain unittest, so a machine where
 # `make setup` has not run yet can still verify the code.
@@ -59,6 +59,9 @@ scrape-verify: ## Stage B Day 1 - verify configured subreddit names against Redd
 
 scrape-pilot: ## Stage B Day 2 - pilot scraping, PILOT=20 players by default
 	$(PYTHON) -m src.scrape.run --pilot $(or $(PILOT),20)
+
+scrape-arctic: ## Stage B - Reddit via Arctic Shift (no credentials needed)
+	$(PYTHON) -m src.scrape.run --provider arctic $(if $(PILOT),--pilot $(PILOT),)
 
 review: ## Stage B Day 2 - draw 100 scraped texts for manual relevance labels
 	$(PYTHON) -m src.scrape.run --sample $(if $(N),--n-sample $(N),)

@@ -17,7 +17,7 @@ import logging
 import sys
 
 from src.config import ROOT, load_config
-from src.scrape import apify_reddit, relevance, subreddits
+from src.scrape import apify_reddit, arctic_shift, relevance, subreddits
 from src.scrape.aliases import AliasIndex
 from src.scrape.players import DEFAULT_PLAYERS, load_players, market_values, pilot_subset
 from src.scrape.reddit import run as run_reddit
@@ -49,6 +49,10 @@ def _sample_players() -> list:
     return load_players(SAMPLE_FILE)
 
 
+def _runner(name: str):
+    """Pick the retrieval path; `oauth` is the default."""
+    return {"apify": apify_reddit.run, "arctic": arctic_shift.run}.get(name, run_reddit)
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Stage B: player-centric Reddit retrieval")
     parser.add_argument("--verify", action="store_true", help="check configured subreddit names")
@@ -60,9 +64,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--n-sample", type=int, default=100, help="texts to draw for review")
     parser.add_argument(
         "--provider",
-        choices=["oauth", "apify"],
+        choices=["oauth", "apify", "arctic"],
         default="oauth",
-        help="reddit retrieval path: oauth (default, ToS-compliant) or apify (marketplace actor)",
+        help=(
+            "reddit retrieval path: oauth (default, needs Data API approval), "
+            "arctic (third-party archive, no credentials), or apify (disabled actor)"
+        ),
     )
     parser.add_argument(
         "--estimate-cost", action="store_true", help="print the apify cost estimate and exit"
@@ -87,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{path}: {stats['rate']:.1%} relevant on {stats['labelled']} labelled texts")
         return 0
 
-    if args.estimate_cost:
+    if args.estimate_cost and args.provider == "apify":
         apify_cfg = load_config()["text_sources"]["reddit"]["apify"]
         chosen = (
             _sample_players()
@@ -123,11 +130,11 @@ def main(argv: list[str] | None = None) -> int:
             "pilot players: %d, ambiguous aliases needing club context: %d",
             len(chosen), len(index.alias_debug()),
         )
-        runner = apify_reddit.run if args.provider == "apify" else run_reddit
+        runner = _runner(args.provider)
         runner(chosen, tag=f"pilot{args.pilot}")
         return 0
 
-    runner = apify_reddit.run if args.provider == "apify" else run_reddit
+    runner = _runner(args.provider)
     runner(_sample_players(), tag="full")
     return 0
 

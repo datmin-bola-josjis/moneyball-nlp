@@ -85,7 +85,7 @@ No other subreddits.
 
 **Expected request volume**
 ```
-Low: under 1,500 requests total for the whole week, spaced at least one second
+Low: about 4,600 requests total for the whole week, spaced at least one second
 apart, with on-disk caching so repeated runs re-read local files instead of
 calling the API again.
 ```
@@ -242,6 +242,118 @@ untuk jalur utama.
 Jalur Actor di marketplace sudah ditolak; lihat §3 di atas. Kodenya tetap ada di
 `src/scrape/apify_reddit.py` sebagai catatan teknis dan **tidak dijalankan**
 (`text_sources.reddit.apify.enabled: false`).
+
+## Jalur Arctic Shift (dipakai untuk tenggat ini)
+
+Keputusan tim: teks Reddit diambil lewat arsip pihak ketiga **Arctic Shift**,
+`https://arctic-shift.photon-reddit.com`, karena OAuth tidak tersedia (formulir
+Data API belum dikirim, `REDDIT_CLIENT_ID`/`SECRET` kosong) dan actor Apify sudah
+ditolak. Ini **melanggar** aturan AGENTS.md "jangan cari jalan pintas saat akses
+Reddit bermasalah" dan PRD §13, dan pelanggaran itu diterima secara sadar dengan
+catatan tertulis di [`decisions.md`](decisions.md) 2026-11-12. Tidak ada
+kredensial yang dipakai: satu-satunya header adalah
+`User-Agent: moneyball-nlp/0.1 (coursework)`.
+
+Kode: `src/scrape/arctic_shift.py`. Perintah:
+
+```bash
+make scrape-arctic                    # 70 pemain sampel terkunci
+make scrape-arctic PILOT=20           # pilot 20 pemain
+```
+
+### Endpoint yang dipakai
+
+Hanya satu: `GET /api/comments/search`, dengan parameter
+
+| Parameter | Nilai | Catatan |
+|---|---|---|
+| `subreddit` | subreddit klub pemain | bukan subreddit liga; lihat tabel di bawah |
+| `body` | **satu kata** = token terakhir nama pemain | `sa`, `larsen`, `peters` |
+| `after` | epoch detik awal musim | |
+| `before` | epoch detik akhir musim, lalu `created_utc` terlama halaman sebelumnya | wajib ada di halaman pertama juga |
+| `limit` | 100, turun ke 25 | tangga limit |
+| `sort` | `desc` | |
+
+`after` dan `before` dikirim sebagai **bilangan bulat epoch** — format yang
+terbukti menyaring dengan benar di sini. Keduanya **wajib ada sejak halaman
+pertama**: `sort=desc` mulai dari baris terbaru arsip, jadi `after` saja
+mengembalikan baris di luar musim yang kemudian gugur di filter jendela. Itu
+sebabnya pilot pertama (`--pilot 3`) memberi satu pemain 0 komentar: seluruh
+halaman pertamanya berisi baris Oktober 2026, dan setelah `before` ditambahkan
+pemain yang sama menghasilkan 89 komentar.
+
+Catatan kejujuran: dokumentasi arsip menyatakan tanggal ISO juga diterima. Probe
+ISO di sini dibalas 422, tetapi 422 pada arsip ini juga berarti beban server
+(subreddit tak ada pun dijawab `200 []`), jadi probe itu **tidak** membuktikan
+ISO ditolak. Yang dipakai adalah format yang benar-benar terverifikasi bekerja,
+bukan klaim bahwa format lain tidak didukung.
+
+### Endpoint yang **tidak** dipakai, dan alasannya
+
+| Yang dicoba | Hasil terukur | Konsekuensi |
+|---|---|---|
+| `/api/posts/search?title=` | **selalu 422** | tidak ada jalur thread; hanya komentar |
+| `subreddit=soccer`, `subreddit=PremierLeague` | **selalu 422** (limit 10/25/100, jendela 1 bulan) | diskusi r/soccer & r/PremierLeague tidak tercakup |
+| `body=` frasa dua kata (`Kieran Trippier`) | **selalu 422** | hanya kata tunggal |
+| `limit=100` untuk term jarang (`WWFC`/`tchatchoua`) | 422; `limit=25` → 200 | tangga limit 100 → 25 |
+| Subreddit tidak ada (`BurnleyFC`) | `200 []` | 422 = beban server, **bukan** "tidak ada hasil" |
+
+### Angka yang diukur (2026-11-12)
+
+| Uji | Hasil |
+|---|---|
+| `limit=100` untuk term umum (`WWFC`/`gomes`, `Gunners`/`mosquera`, `safc`/`mukiele`) | 200, penuh 100 baris |
+| Paginasi `before=<created_utc terlama>` | 100 baris baru, 0 overlap |
+| Retry pada 422 | ~40% percobaan pertama gagal; sukses pada percobaan 1–3 |
+| Presisi term | r/Burnley `Edwards` 34/35; term marga lain 100/100; `[deleted]` 0 |
+| `body=` | mencocokkan **substring**, bukan kata utuh |
+| `GET /api/subreddits/search?subreddit=Burnley` | 200, 8.991 subscriber → r/Burnley **valid** |
+
+Dua konsekuensi yang sudah ditangani di kode: (a) sifat substring dinetralkan
+oleh `find_mentions`/`resolves` di `_records_from_comment`, jadi tidak ada
+validasi kata utuh terpisah; (b) setiap jawaban 200 **langsung** di-cache ke
+`data/raw/reddit/arctic/cache/` dan cache tidak pernah ditimpa.
+
+### Dua pemain dengan 0 komentar di pilot 20 — penyebabnya berbeda
+
+| Pemain | Penyebab | Bukti |
+|---|---|---|
+| `Alisson Becker` | request gagal, **bukan** retrieval kosong | alias `Becker` ada; tidak satu pun halaman `r/LiverpoolFC` `body=becker` berhasil — 8/8 percobaan 422, tercatat `failed_requests: 1` |
+| `Jacob Bruun Larsen` | alias tidak pernah cocok | 5 komentar mentah dari `r/Burnley`, **3** menulis "Bruun Larsen"; `name_aliases` terkunci hanya memuat nama lengkap + `Jacob Bruun L.` |
+
+Sebab alias: `split_name()` memperlakukan token terakhir sebagai marga, jadi
+`Larsen` dihasilkan tetapi frasa `Bruun Larsen` tidak. Karena `Larsen` juga milik
+pemain lain di sampel, `drop_colliding_aliases()` membuangnya dari keduanya.
+Sampel terkunci tidak disunting (aturan 14); ini dicatat sebagai keterbatasan
+recall, bukan ditambal dengan mencocokkan token terakhir secara global — itu akan
+mengaitkan `Gomes`/`Silva` ke pemain yang salah (aturan 17).
+
+### Keterbatasan yang wajib masuk laporan
+
+1. **Sumbernya arsip pihak ketiga, bukan Data API resmi Reddit.** Ini pelanggaran
+   ToS yang diterima secara sadar (lihat `decisions.md`), bukan ketidaktahuan.
+2. **Dataset mentah tidak dapat direproduksi dosen** tanpa akses ke arsip yang
+   sama. Skripnya bisa dijalankan ulang, isi arsipnya bisa berubah.
+3. **Recall nama majemuk lebih rendah.** Lihat tabel di atas: pemain dengan
+   marga majemuk yang bertabrakan (`Bruun Larsen`, `Strand Larsen`) hanya cocok
+   lewat nama lengkap, sehingga komentar yang menyebut "Bruun Larsen" saja
+   terlewat. Ini mengurangi jumlah teks, bukan menggeser skornya.
+4. **Cakupan hanya subreddit klub.** Diskusi r/soccer dan r/PremierLeague tidak
+   masuk karena endpoint-nya menolak subreddit besar. Pemain yang dibahas netral
+   di forum liga akan kekurangan teks, dan itu tampil sebagai
+   `players_without_text`/`bukti tidak cukup`, bukan disembunyikan.
+
+### Catatan privasi (aturan 11)
+
+Payload arsip adalah objek komentar Reddit utuh: ~72 field, termasuk `author`,
+`author_fullname`, `profile_img` (URL avatar), `link_author` (penulis post),
+`approved_by`/`banned_by`/`mod_reason_by` (nama moderator) dan `author_flair_*`.
+Blacklist field **gagal** — `profile_img` dan `link_author` sempat tertulis ke
+disk pada pilot pertama. Karena itu `_annotate()` sekarang **whitelist**: hanya
+`id`, `body`, `created_utc`, `subreddit`, `score`, `permalink`, `link_id`,
+`stickied` yang disimpan, ditambah `_skip` (keputusan bot/deleted/stickied yang
+diambil **sebelum** nama dibuang, karena `keep_comment` butuh `author`). Cache dan
+`*.comments.json` sama-sama melewati `_annotate()` sebelum ditulis.
 
 ## Jalur Apify — **dinonaktifkan** (catatan, bukan jalur yang dipakai)
 

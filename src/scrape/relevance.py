@@ -4,22 +4,21 @@ Day 2 gate: 100 drawn texts are read by hand and marked relevant or not. This
 module draws the sheet and turns the filled sheet into a report with numbers, so
 the claim "85% relevance" traces back to a file in the repo.
 
-Selection is deterministic - hash order within a player, round-robin across
-players - instead of `random`: no seed to forget, and every teammate gets the
-same sheet on the same data. It is not a uniform random sample, which is why the
-report states the exact draw rule.
+Selection is a uniform random sample seeded by `text_sample.random_seed` from
+config (AGENTS.md rule 13), so 100 texts really are random and the draw is
+reproducible by any teammate on the same file.
 """
 
 from __future__ import annotations
 
 import csv
-import hashlib
 import json
 import logging
+import random
 from collections import defaultdict
 from pathlib import Path
 
-from src.config import ROOT
+from src.config import ROOT, load_config
 
 log = logging.getLogger("relevance")
 INTERIM = ROOT / "data" / "interim"
@@ -43,30 +42,31 @@ def _texts(tag: str | None = None) -> list[dict]:
     return [r for r in rows if r.get("unit_type") == "comment"]
 
 
-def _rank_key(row: dict) -> str:
-    return hashlib.sha256(row["text_id"].encode()).hexdigest()
-
-
 def sample_for_review(n: int = 100, tag: str | None = None) -> Path:
+    """Draw `n` texts with `random.sample` and the seed from config.
+
+    AGENTS.md and PRD §11 ask for 100 *random* texts. The earlier hash +
+    round-robin draw was deterministic but not random - it over-sampled players
+    with few texts - so the gate number would not be the number the rule
+    describes. The seed lives in `text_sample.random_seed` (rule 13), so the draw
+    is reproducible by anyone on the same file.
+    """
     rows = _texts(tag)
     if not rows:
         raise SystemExit("no comment-level texts to sample")
 
-    by_player: dict[str, list[dict]] = defaultdict(list)
-    for row in sorted(rows, key=_rank_key):
-        by_player[row["player_id"]].append(row)
+    # Never destroy annotation work: a sheet with any label is not regenerated.
+    if REVIEW_CSV.exists():
+        with REVIEW_CSV.open(encoding="utf-8", newline="") as fh:
+            existing = list(csv.DictReader(fh))
+        if any(_parse_label(r.get("relevant", "")) is not None for r in existing):
+            raise SystemExit(
+                f"{REVIEW_CSV} already has labels. Move or delete it before drawing a "
+                "new sheet, so a filled gate is not silently emptied."
+            )
 
-    # Round-robin so a player with 60 texts cannot fill the whole sheet.
-    order = sorted(by_player, key=lambda pid: _rank_key({"text_id": pid}))
-    picked: list[dict] = []
-    take = min(n, len(rows))
-    round_index = 0
-    while len(picked) < take:
-        for pid in order:
-            bucket = by_player[pid]
-            if round_index < len(bucket) and len(picked) < take:
-                picked.append(bucket[round_index])
-        round_index += 1
+    seed = int(load_config()["text_sample"]["random_seed"])
+    picked = random.Random(seed).sample(rows, min(n, len(rows)))
 
     REVIEW_CSV.parent.mkdir(parents=True, exist_ok=True)
     with REVIEW_CSV.open("w", encoding="utf-8", newline="") as fh:
@@ -87,7 +87,16 @@ def _parse_label(value: str) -> bool | None:
     return None
 
 
-def score_review(path: Path = REVIEW_CSV, target: float = 0.85) -> tuple[Path, dict]:
+def score_review(
+    path: Path = REVIEW_CSV, target: float = 0.85, min_labelled: int = 100
+) -> tuple[Path, dict]:
+    """Turn the filled sheet into the gate report.
+
+    `LULUS` requires a rate >= target, at least `min_labelled` labels, *and* no
+    blank rows left in the sheet. A rate over a partly blank sheet is not the
+    measurement the gate describes: the blanks are texts nobody read, and reading
+    only the easy ones inflates the number.
+    """
     if not path.exists():
         raise SystemExit(f"review sheet not found: {path} - run `make review` first")
     with path.open(encoding="utf-8", newline="") as fh:
@@ -103,23 +112,35 @@ def score_review(path: Path = REVIEW_CSV, target: float = 0.85) -> tuple[Path, d
 
     relevant = sum(1 for _, ok in done if ok)
     rate = relevant / len(done)
+    enough = len(done) >= min_labelled
+    passed = enough and skipped == 0 and rate >= target
 
     by_sub: dict[str, list[bool]] = defaultdict(list)
     for row, ok in done:
         by_sub[row.get("subreddit", "?")].append(bool(ok))
 
     failures = [row for row, ok in done if not ok]
+    if not enough:
+        status = f"BELUM LULUS — baru {len(done)}/{min_labelled} teks dilabeli"
+    elif skipped:
+        status = f"BELUM LULUS — {skipped} teks belum dilabeli"
+    elif passed:
+        status = "LULUS"
+    else:
+        status = "BELUM LULUS"
     lines = [
         "# Relevansi Retrieval Reddit (Tahap B)",
         "",
         f"- Teks dilabeli: **{len(done)}** dari {len(rows)} ditarik ({skipped} kosong)",
         f"- Relevan: **{relevant}**",
         f"- Relevansi: **{rate:.1%}** (target PRD §11: >= {target:.0%})",
-        f"- Status: **{'LULUS' if rate >= target else 'BELUM LULUS'}**",
+        f"- Status: **{status}**",
         "",
-        "Cara sampel diambil: urut hash `text_id` di dalam tiap pemain, lalu round-robin "
-        "antar pemain, supaya satu pemain populer tidak mengisi seluruh lembar. Bukan "
-        "sampel acak seragam; angka ini berlaku untuk aturan pengambilan tersebut.",
+        "Cara sampel diambil: `random.sample` dengan seed `text_sample.random_seed` dari "
+        "`config/config.yaml` — sampel acak seragam atas semua komentar di file "
+        "`texts_reddit_*.jsonl` yang dipakai. Seednya sama untuk semua anggota tim, jadi "
+        "lembar yang sama bisa dibuat ulang. `LULUS` hanya diberikan bila minimal "
+        f"{min_labelled} teks dilabeli.",
         "",
         "## Per subreddit",
         "",
@@ -138,6 +159,12 @@ def score_review(path: Path = REVIEW_CSV, target: float = 0.85) -> tuple[Path, d
 
     REPORT.parent.mkdir(parents=True, exist_ok=True)
     REPORT.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    stats = {"labelled": len(done), "relevant": relevant, "rate": rate, "failures": len(failures)}
+    stats = {
+        "labelled": len(done),
+        "relevant": relevant,
+        "rate": rate,
+        "failures": len(failures),
+        "passed": passed,
+    }
     log.info("relevance %.1f%% on %d labelled texts -> %s", rate * 100, len(done), REPORT)
     return REPORT, stats

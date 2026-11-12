@@ -143,6 +143,20 @@ text_sources:
       search_time_filter: "year"
       search_sort: "top"        # post paling dibahas setahun terakhir, bukan yang terbaru
 
+    # ------------------------------------------------- Provider Arctic Shift (B4)
+    # Arsip Reddit pihak ketiga. Dipakai untuk Tahap B karena OAuth tidak
+    # tersedia (formulir Data API belum dikirim, kredensial kosong) dan Apify
+    # ditolak. Keputusan tim tertulis di docs/decisions.md 2026-11-12.
+    arctic_shift:
+      enabled: true
+      max_pages_per_term: 2         # 2 halaman x 100 komentar per (subreddit, term)
+      limit_ladder: [100, 25]       # 422 pada limit besar turun ke limit kecil
+      retry_gap_seconds: 10         # basis jeda; backoff exponential 10/20/40 s
+      max_attempts: 4
+      max_reset_wait_seconds: 120   # patuh header X-RateLimit-Reset, dengan pagar
+      rate_limit_seconds: 1.0       # lantai keras, sama seperti jalur OAuth
+      cache_dir: "data/raw/reddit/arctic/cache"
+
   youtube:
     enabled: true
     use_playlist_items: true

@@ -227,6 +227,7 @@ def _records_from_comment(
     league_clubs: list[str],
     min_words: int,
     seen_hashes: set[str],
+    source: str = "reddit",
 ) -> list[TextRecord]:
     raw_body = comment.get("body") or ""
     cleaned = clean_text(raw_body)
@@ -267,7 +268,7 @@ def _records_from_comment(
     comment_id = f"rd_{comment.get('id') or body_hash}_{player.player_id}"
     shared = dict(
         player_id=player.player_id,
-        source="reddit",
+        source=source,
         text_raw=raw_body,
         language="en",
         created_at=created.isoformat(timespec="seconds"),

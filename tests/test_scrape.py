@@ -6,6 +6,8 @@ Run with `make test` (unittest, so no extra dependency is required).
 from __future__ import annotations
 
 import csv
+import json
+import random
 import sys
 import tempfile
 import unittest
@@ -15,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.scrape import apify_reddit, relevance, subreddits  # noqa: E402
+from src.scrape import apify_reddit, arctic_shift, relevance, subreddits  # noqa: E402
 from src.scrape.aliases import AliasIndex, normalize  # noqa: E402
 from src.scrape.players import Player, club_needles, pilot_subset  # noqa: E402
 from src.scrape.reddit import (  # noqa: E402
@@ -728,6 +730,470 @@ class ApifyProviderTests(unittest.TestCase):
             apify_cfg.update(original)
 
 
+class ArcticShiftProviderTests(unittest.TestCase):
+    """Archive shape in, TextRecord out. No network: the session is stubbed."""
+
+    WINDOW_START = 1751328000.0  # 2025-07-01, epoch: the archive ignores strings
+    # 2025-11-20T11:00:00Z, inside the configured season window.
+    CREATED = 1763636400.0
+
+    def _comment(self, **kw):
+        base = {
+            "id": "c1",
+            "body": "Bruno Guimaraes was everywhere tonight and never stopped pressing.",
+            "author": "fan",
+            "subreddit": "NUFC",
+            "link_id": "t3_abc",
+            "created_utc": self.CREATED,
+            "permalink": "/r/NUFC/comments/abc/x/c1/",
+            "score": 7,
+            "stickied": False,
+            "distinguished": None,
+        }
+        base.update(kw)
+        return base
+
+    def setUp(self):
+        self.index = AliasIndex.build([BRUNO_G, JOELINTON])
+
+    def _map(self, comments, player=BRUNO_G, min_words=8, **kw):
+        return arctic_shift.records_from_comments(
+            comments, player, self.index, CLUBS, min_words, **kw
+        )
+
+    # ------------------------------------------------------------- mapping
+    def test_comment_and_sentences_are_produced(self):
+        records = self._map([self._comment(
+            body="Kieran Trippier was excellent at right back tonight. Bruno Guimaraes owned midfield."
+        )])
+        kinds = [r.unit_type for r in records]
+        self.assertEqual(kinds[0], "comment")
+        self.assertIn("sentence", kinds)
+        self.assertEqual({r.source for r in records}, {"reddit_arctic"})
+        self.assertEqual({r.thread_id for r in records}, {"abc"})
+
+    def test_native_archive_shape_is_mapped_without_auth(self):
+        records = self._map([self._comment()])
+        self.assertEqual(records[0].player_id, BRUNO_G.player_id)
+        self.assertEqual(records[0].subreddit, "NUFC")
+        self.assertEqual(records[0].engagement, 7)
+        self.assertTrue(records[0].url.startswith("https://www.reddit.com/r/NUFC/"))
+
+    def test_deleted_stickied_and_bot_comments_are_dropped(self):
+        for bad in (
+            self._comment(body="[deleted]"),
+            self._comment(stickied=True),
+            self._comment(author="AutoModerator"),
+        ):
+            self.assertEqual(self._map([bad]), [], bad)
+
+    def test_short_and_out_of_season_comments_are_dropped(self):
+        self.assertEqual(self._map([self._comment(body="Bruno good.")]), [])
+        self.assertEqual(self._map([self._comment(created_utc=1782000000.0)]), [])
+
+    def test_quota_caps_comment_units(self):
+        comments = [
+            self._comment(id=f"c{i}", body=f"Bruno Guimaraes dictated tempo again in game {i}, unreal.")
+            for i in range(5)
+        ]
+        kept = [r for r in self._map(comments, quota=2) if r.unit_type == "comment"]
+        self.assertEqual(len(kept), 2)
+
+    def test_duplicate_comment_kept_once(self):
+        dup = self._comment()
+        kept = [r for r in self._map([dup, dict(dup)]) if r.unit_type == "comment"]
+        self.assertEqual(len(kept), 1)
+
+    def test_query_term_is_the_last_name_token(self):
+        # Two-word `body=` phrases answer 422 unconditionally.
+        self.assertEqual(arctic_shift.query_terms(BRUNO_G), ["guimaraes"])
+        jose = Player(player_id="p_sa", name="José Sá", aliases=("José Sá", "Sá"), club="Wolverhampton Wanderers")
+        self.assertEqual(arctic_shift.query_terms(jose), ["sa"])
+
+    def test_league_subreddits_are_not_queried(self):
+        # r/soccer and r/PremierLeague are not body-searchable in the archive.
+        subs = arctic_shift.player_subreddits(BRUNO_G)
+        self.assertEqual(subs, ["NUFC"])
+        self.assertNotIn("soccer", subs)
+
+    # -------------------------------------------------------------- client
+    def _client(self, statuses, payloads=None, cache_dir=None):
+        class Resp:
+            def __init__(self, code, body, headers=None):
+                self.status_code = code
+                self._body = body
+                self.headers = headers or {}
+                self.text = json.dumps(body)[:200]
+
+            def json(self):
+                return self._body
+
+        class Session:
+            def __init__(self):
+                self.headers = {}
+                self.calls = []
+
+            def get(self, url, params=None, timeout=None):
+                self.calls.append(dict(params or {}))
+                code = statuses[min(len(self.calls) - 1, len(statuses) - 1)]
+                body = (payloads or {}).get(params.get("limit"), {"data": []})
+                return Resp(code, body)
+
+        session = Session()
+        tmp = cache_dir or Path(tempfile.mkdtemp())
+        client = arctic_shift.ArcticShiftClient(session=session, cache_dir=tmp)
+        client.retry_gap = 0.0
+        client.min_interval = 0.0
+        return client, session
+
+    def test_422_then_200_returns_the_page(self):
+        page = {"data": [{"id": "c1", "body": "x", "created_utc": 1}]}
+        client, session = self._client([422, 200], {100: page})
+        rows = client.search_comments("NUFC", "guimaraes", self.WINDOW_START)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(len(session.calls), 2)
+
+    def test_limit_ladder_drops_on_422(self):
+        # limit=100 always 422, limit=25 answers: the ladder must lower the limit.
+        page = {"data": [{"id": "c9", "body": "y", "created_utc": 1}]}
+
+        class Resp:
+            def __init__(self, code, body, headers=None):
+                self.status_code = code
+                self._body = body
+                self.headers = headers or {}
+                self.text = ""
+
+            def json(self):
+                return self._body
+
+        class Session:
+            def __init__(self):
+                self.headers = {}
+                self.limits = []
+
+            def get(self, url, params=None, timeout=None):
+                self.limits.append(params["limit"])
+                return Resp(200, page) if params["limit"] <= 25 else Resp(422, {})
+
+        session = Session()
+        client = arctic_shift.ArcticShiftClient(
+            session=session, cache_dir=Path(tempfile.mkdtemp())
+        )
+        client.retry_gap = 0.0
+        client.min_interval = 0.0
+        rows = client.search_comments("WWFC", "tchatchoua", self.WINDOW_START)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(session.limits, [100, 100, 100, 100, 25])
+        self.assertEqual(client.last_limit, 25)
+
+    def test_persistent_422_raises(self):
+        client, _ = self._client([422])
+        with self.assertRaises(arctic_shift.ArcticShiftError):
+            client.search_comments("WWFC", "jose", self.WINDOW_START)
+
+    def test_backoff_grows_instead_of_staying_fixed(self):
+        # AGENTS.md requires exponential backoff, not a constant gap.
+        slept: list[float] = []
+        original = arctic_shift.time.sleep
+        arctic_shift.time.sleep = lambda s: slept.append(s)
+        try:
+            client, _ = self._client([422])
+            client.retry_gap = 10.0
+            client.limit_ladder = [100]  # one step, so backoff is not repeated per limit
+            with self.assertRaises(arctic_shift.ArcticShiftError):
+                client.search_comments("WWFC", "jose", self.WINDOW_START)
+        finally:
+            arctic_shift.time.sleep = original
+        self.assertEqual(slept, [10.0, 20.0, 40.0])
+
+    def test_403_stops_instead_of_retrying(self):
+        client, session = self._client([403])
+        with self.assertRaises(arctic_shift.ArcticShiftBlocked):
+            client.search_comments("NUFC", "guimaraes", self.WINDOW_START)
+        self.assertEqual(len(session.calls), 1)
+
+    def _reset_client(self, headers: dict, status: int = 429):
+        """Client whose stub answers `status` with the given headers, then 200."""
+
+        class Resp:
+            def __init__(self, code, hdrs):
+                self.status_code = code
+                self.headers = hdrs
+                self.text = ""
+                self._body = {"data": []}
+
+            def json(self):
+                return self._body
+
+        class Session:
+            def __init__(self):
+                self.headers = {}
+                self.calls = 0
+
+            def get(self, url, params=None, timeout=None):
+                self.calls += 1
+                return Resp(status, headers) if self.calls == 1 else Resp(200, {})
+
+        session = Session()
+        client = arctic_shift.ArcticShiftClient(
+            session=session, cache_dir=Path(tempfile.mkdtemp())
+        )
+        client.retry_gap = 0.0
+        client.min_interval = 0.0
+        return client, session
+
+    def test_rate_limit_reset_header_is_waited_out(self):
+        # The archive advertises when it will accept a request again; sending
+        # early is what turns one 422 into eight.
+        slept: list[float] = []
+        original = arctic_shift.time.sleep
+        arctic_shift.time.sleep = lambda s: slept.append(s)
+        try:
+            client, session = self._reset_client({"x-ratelimit-reset": "35"})
+            client.search_comments("NUFC", "guimaraes", self.WINDOW_START)
+        finally:
+            arctic_shift.time.sleep = original
+        self.assertEqual(session.calls, 2)
+        self.assertIn(35.0, slept)
+
+    def test_malformed_reset_at_falls_back_to_seconds(self):
+        slept: list[float] = []
+        original = arctic_shift.time.sleep
+        arctic_shift.time.sleep = lambda s: slept.append(s)
+        try:
+            client, _ = self._reset_client(
+                {"x-ratelimit-reset-at": "not-a-number", "x-ratelimit-reset": "12"}
+            )
+            client.search_comments("NUFC", "guimaraes", self.WINDOW_START)
+        finally:
+            arctic_shift.time.sleep = original
+        self.assertIn(12.0, slept)
+
+    def test_reset_beyond_the_ceiling_stops_instead_of_requesting_early(self):
+        client, session = self._reset_client({"x-ratelimit-reset": "9999"})
+        client.max_reset_wait = 120.0
+        with self.assertRaises(arctic_shift.ArcticShiftBlocked):
+            client.search_comments("NUFC", "guimaraes", self.WINDOW_START)
+        self.assertEqual(session.calls, 1)
+
+    def test_rate_limit_without_any_reset_header_stops(self):
+        client, session = self._reset_client({})
+        with self.assertRaises(arctic_shift.ArcticShiftBlocked):
+            client.search_comments("NUFC", "guimaraes", self.WINDOW_START)
+        self.assertEqual(session.calls, 1)
+
+    def test_throttled_200_is_not_cached_as_an_empty_page(self):
+        # {"data": null, "error": "Timeout. Maybe slow down a bit"} arrives as 200;
+        # caching it would freeze an empty page into the run forever.
+        class Resp:
+            def __init__(self, code, body):
+                self.status_code = code
+                self._body = body
+                self.headers = {}
+                self.text = json.dumps(body)[:100]
+
+            def json(self):
+                return self._body
+
+        class Session:
+            def __init__(self):
+                self.headers = {}
+                self.calls = 0
+
+            def get(self, url, params=None, timeout=None):
+                self.calls += 1
+                if self.calls == 1:
+                    return Resp(200, {"data": None, "error": "Timeout. Maybe slow down a bit"})
+                return Resp(200, {"data": [{"id": "c1", "body": "x", "created_utc": 5}]})
+
+        cache_dir = Path(tempfile.mkdtemp())
+        client = arctic_shift.ArcticShiftClient(session=Session(), cache_dir=cache_dir)
+        client.retry_gap = 0.0
+        client.min_interval = 0.0
+        rows = client.search_comments("NUFC", "guimaraes", self.WINDOW_START)
+        self.assertEqual(len(rows), 1)
+        # The cache must hold the real page, not the throttled answer.
+        stored = json.loads(next(cache_dir.glob("*.json")).read_text(encoding="utf-8"))
+        self.assertEqual(len(stored), 1)
+
+    def test_cheap_cached_rung_is_found_without_any_request(self):
+        # A page cached at limit=25 must satisfy the call even though 100 is tried
+        # first, otherwise every rerun re-requests the expensive rung for nothing.
+        cache_dir = Path(tempfile.mkdtemp())
+        seed, _ = self._client([200], {25: {"data": [{"id": "c1", "body": "x", "created_utc": 5}]}},
+                               cache_dir=cache_dir)
+        seed.limit_ladder = [25]
+        seed.search_comments("WWFC", "tchatchoua", self.WINDOW_START)
+
+        client, session = self._client([200], {}, cache_dir=cache_dir)
+        rows = client.search_comments("WWFC", "tchatchoua", self.WINDOW_START)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(len(session.calls), 0)
+        self.assertEqual(client.last_limit, 25)
+
+    def test_blocked_refusal_aborts_the_whole_run(self):
+        # A 403 on one player must not be swallowed into "no texts for this player".
+        class Blocked:
+            requests_made = 0
+            last_limit = 100
+
+            def search_comments(self, *a, **kw):
+                raise arctic_shift.ArcticShiftBlocked("HTTP 403 - access refused")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(arctic_shift.ArcticShiftBlocked):
+                arctic_shift.run([BRUNO_G], client=Blocked(), tag="blocked", root=Path(tmp))
+
+    def test_non_retryable_status_raises_at_once(self):
+        client, session = self._client([403])
+        with self.assertRaises(arctic_shift.ArcticShiftError):
+            client.search_comments("NUFC", "guimaraes", self.WINDOW_START)
+        self.assertEqual(len(session.calls), 1)
+
+    def test_successful_page_is_cached_and_not_refetched(self):
+        page = {"data": [{"id": "c1", "body": "x", "created_utc": 1}]}
+        client, session = self._client([200], {100: page})
+        client.search_comments("NUFC", "guimaraes", self.WINDOW_START)
+        rows = client.search_comments("NUFC", "guimaraes", self.WINDOW_START)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(len(session.calls), 1)  # second call never touched network
+
+    def test_empty_result_is_a_real_answer_not_an_error(self):
+        client, _ = self._client([200], {100: {"data": []}})
+        self.assertEqual(client.search_comments("BurnleyFC", "trippier", self.WINDOW_START), [])
+
+    def test_cache_on_disk_carries_no_username(self):
+        # Found in the first live pilot: the raw archive answer includes `author`,
+        # `author_fullname`, `approved_by`, `banned_by`, `awarders`, `link_author`
+        # and `profile_img` (the commenter's avatar URL). Writing it unscrubbed
+        # breaks AGENTS.md rule 11, so only the fields the pipeline reads survive.
+        page = {"data": [self._comment(
+            author="some_real_username",
+            author_fullname="t2_abc",
+            approved_by="modname",
+            awarders=["giver"],
+            link_author="post_author_name",
+            profile_img="https://styles.redditmedia.com/avatar.jpg",
+        )]}
+        cache_dir = Path(tempfile.mkdtemp())
+        client, _ = self._client([200], {100: page}, cache_dir=cache_dir)
+        client.search_comments("NUFC", "guimaraes", self.WINDOW_START)
+        stored = json.loads(next(cache_dir.glob("*.json")).read_text(encoding="utf-8"))
+        self.assertEqual(
+            set(stored[0]),
+            {"id", "body", "created_utc", "subreddit", "score", "permalink",
+             "link_id", "stickied", "_skip"},
+        )
+        # The bot verdict survives the scrub, so a replayed row is still filtered.
+        self.assertEqual(stored[0]["_skip"], False)
+
+    def test_bot_verdict_is_taken_before_scrubbing(self):
+        bot = self._comment(author="AutoModerator")
+        cache_dir = Path(tempfile.mkdtemp())
+        client, _ = self._client([200], {100: {"data": [bot]}}, cache_dir=cache_dir)
+        cached = client.search_comments("NUFC", "guimaraes", self.WINDOW_START)
+        self.assertEqual(cached[0]["_skip"], True)
+        self.assertNotIn("author", cached[0])
+        self.assertEqual(self._map(cached), [])
+
+    def test_window_is_sent_as_epoch_seconds(self):
+        # Epoch integers are the format verified to filter here; the same test
+        # checks both bounds reach the first request.
+        page = {"data": []}
+        client, session = self._client([200], {100: page})
+        client.search_comments("Everton", "pickford", self.WINDOW_START, 1780271999)
+        self.assertEqual(session.calls[0]["after"], 1751328000)
+        self.assertEqual(session.calls[0]["before"], 1780271999)
+        self.assertIsInstance(session.calls[0]["after"], int)
+
+    # ----------------------------------------------------------------- run
+    def test_run_writes_raw_summary_and_interim_without_identity(self):
+        page = [
+            self._comment(id="c1"),
+            self._comment(id="c2", body="Joelinton was unplayable in that half, honestly."),
+        ]
+
+        class Stub:
+            requests_made = 4
+            last_limit = 100
+
+            def __init__(self):
+                self.calls = []
+
+            def search_comments(self, subreddit, term, after, before=None):
+                self.calls.append((subreddit, term, before))
+                # One page only: the second call returns nothing.
+                return page if len(self.calls) == 1 else []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = Stub()
+            interim = arctic_shift.run([BRUNO_G], client=stub, tag="unit", root=Path(tmp))
+            rows = [json.loads(l) for l in interim.read_text(encoding="utf-8").splitlines()]
+            self.assertTrue(rows)
+            self.assertEqual({r["source"] for r in rows}, {"reddit_arctic"})
+            raw = list((Path(tmp) / "data" / "raw" / "reddit").glob("arctic-unit-*"))
+            self.assertEqual(len(raw), 1)
+            payload = json.loads((raw[0] / f"{BRUNO_G.player_id}.comments.json").read_text(encoding="utf-8"))
+            self.assertTrue(all("author" not in item for item in payload))
+            summary = json.loads((raw[0] / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["provider"], "arctic_shift")
+            self.assertIn("failed_requests", summary)
+            self.assertEqual(summary["comments"], sum(1 for r in rows if r["unit_type"] == "comment"))
+
+    def test_run_never_exceeds_the_per_player_quota(self):
+        # The first live pilot kept 89 and 93 comments against a quota of 60: the
+        # mapper was called with quota=None, so one full page overshot.
+        from src.scrape import reddit as reddit_mod
+        cfg = reddit_mod.load_config()["text_sources"]["reddit"]
+        quota = int(cfg["max_texts_per_player"])
+        page = [
+            self._comment(id=f"c{i}", body=f"Bruno Guimaraes dictated tempo again in game {i}, unreal.")
+            for i in range(quota * 2)
+        ]
+
+        class Stub:
+            requests_made = 0
+            last_limit = 100
+
+            def __init__(self):
+                self.calls = 0
+
+            def search_comments(self, subreddit, term, after, before=None):
+                self.calls += 1
+                # Every page is full, so only the quota can stop the walk.
+                return page
+
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = Stub()
+            interim = arctic_shift.run([BRUNO_G], client=stub, tag="quota", root=Path(tmp))
+            rows = [json.loads(l) for l in interim.read_text(encoding="utf-8").splitlines()]
+            kept = sum(1 for r in rows if r["unit_type"] == "comment")
+            self.assertEqual(kept, quota)
+            self.assertEqual(stub.calls, 1)
+
+    def test_pagination_walks_until_short_page(self):
+        full = [self._comment(id=f"c{i}", body=f"Bruno Guimaraes ran midfield in game {i} tonight.")
+                for i in range(100)]
+
+        class Stub:
+            requests_made = 0
+            last_limit = 100
+
+            def __init__(self):
+                self.befores = []
+
+            def search_comments(self, subreddit, term, after, before=None):
+                self.befores.append(before)
+                # First page is bounded above by the season end, not `None`.
+                return full if before == epoch_window()[1] else full[:3]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = Stub()
+            arctic_shift.run([BRUNO_G], client=stub, tag="page", root=Path(tmp))
+            # Page 1 is capped by the season end; page 2 by the oldest row seen.
+            self.assertEqual(stub.befores, [epoch_window()[1], float(int(self.CREATED))])
+
 class RawOutputTests(unittest.TestCase):
     def test_second_run_in_the_same_second_gets_its_own_directory(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -774,6 +1240,133 @@ class RelevanceTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             relevance.score_review(Path(tempfile.gettempdir()) / "does-not-exist.csv")
 
+    def _sheet(self, tmp, labels):
+        sheet = Path(tmp) / "review.csv"
+        with sheet.open("w", encoding="utf-8", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=relevance.FIELDS)
+            writer.writeheader()
+            for i, label in enumerate(labels):
+                writer.writerow(
+                    {
+                        "text_id": f"t{i}",
+                        "player_id": "p1",
+                        "subreddit": "NUFC",
+                        "created_at": "2025-09-01",
+                        "url": "",
+                        "text_clean": "Bruno G. was excellent",
+                        "relevant": label,
+                    }
+                )
+        return sheet
+
+    def test_high_rate_on_a_handful_of_labels_does_not_pass_the_gate(self):
+        # 3/3 relevant is 100%, but the gate asks for 100 labelled texts.
+        with tempfile.TemporaryDirectory() as tmp:
+            sheet = self._sheet(tmp, ["y", "y", "y"])
+            out = Path(tmp) / "report.md"
+            original = relevance.REPORT
+            relevance.REPORT = out
+            try:
+                path, stats = relevance.score_review(sheet)
+            finally:
+                relevance.REPORT = original
+            self.assertFalse(stats["passed"])
+            self.assertIn("BELUM LULUS", path.read_text(encoding="utf-8"))
+
+    def test_full_labelled_sheet_passes_above_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sheet = self._sheet(tmp, ["y"] * 90 + ["n"] * 10)
+            out = Path(tmp) / "report.md"
+            original = relevance.REPORT
+            relevance.REPORT = out
+            try:
+                path, stats = relevance.score_review(sheet)
+            finally:
+                relevance.REPORT = original
+            self.assertTrue(stats["passed"])
+            self.assertIn("LULUS", path.read_text(encoding="utf-8"))
+
+    def test_full_labelled_sheet_fails_below_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sheet = self._sheet(tmp, ["y"] * 80 + ["n"] * 20)
+            out = Path(tmp) / "report.md"
+            original = relevance.REPORT
+            relevance.REPORT = out
+            try:
+                path, stats = relevance.score_review(sheet)
+            finally:
+                relevance.REPORT = original
+            self.assertFalse(stats["passed"])
+            self.assertIn("BELUM LULUS", path.read_text(encoding="utf-8"))
+
+    def _run_sampler(self, tmp, rows, n=100):
+        """Call the real sampler against a temporary sheet, twice."""
+        sheet = Path(tmp) / "review.csv"
+        original_texts, original_csv = relevance._texts, relevance.REVIEW_CSV
+        relevance._texts = lambda tag=None: rows
+        relevance.REVIEW_CSV = sheet
+        try:
+            relevance.sample_for_review(n=n)
+            first = list(csv.DictReader(sheet.open(encoding="utf-8")))
+            sheet.unlink()  # clear it so the second draw is not blocked
+            relevance.sample_for_review(n=n)
+            second = list(csv.DictReader(sheet.open(encoding="utf-8")))
+        finally:
+            relevance._texts, relevance.REVIEW_CSV = original_texts, original_csv
+        return first, second
+
+    def test_sample_for_review_draws_seeded_random_rows(self):
+        rows = [{"text_id": f"t{i}", "player_id": f"p{i % 7}", "unit_type": "comment"}
+                for i in range(400)]
+        with tempfile.TemporaryDirectory() as tmp:
+            first, second = self._run_sampler(tmp, rows)
+        seed = int(relevance.load_config()["text_sample"]["random_seed"])
+        expected = [r["text_id"] for r in random.Random(seed).sample(rows, 100)]
+        self.assertEqual([r["text_id"] for r in first], expected)
+        # Same seed, second run: identical sheet, and no label pre-filled.
+        self.assertEqual([r["text_id"] for r in second], expected)
+        self.assertTrue(all(r["relevant"] == "" for r in first))
+
+    def test_sample_for_review_refuses_to_clear_a_labelled_sheet(self):
+        rows = [{"text_id": f"t{i}", "player_id": "p1", "unit_type": "comment"} for i in range(120)]
+        with tempfile.TemporaryDirectory() as tmp:
+            first, _ = self._run_sampler(tmp, rows)
+            self.assertEqual(len(first), 100)
+            # Team fills in one label; a redraw must not silently erase it.
+            sheet = Path(tmp) / "review.csv"
+            filled = list(csv.DictReader(sheet.open(encoding="utf-8")))
+            filled[0]["relevant"] = "y"
+            with sheet.open("w", encoding="utf-8", newline="") as fh:
+                writer = csv.DictWriter(fh, fieldnames=relevance.FIELDS)
+                writer.writeheader()
+                writer.writerows(filled)
+            original_texts, original_csv = relevance._texts, relevance.REVIEW_CSV
+            relevance._texts = lambda tag=None: rows
+            relevance.REVIEW_CSV = sheet
+            try:
+                with self.assertRaises(SystemExit):
+                    relevance.sample_for_review(n=100)
+            finally:
+                relevance._texts, relevance.REVIEW_CSV = original_texts, original_csv
+            self.assertEqual(
+                sum(1 for r in csv.DictReader(sheet.open(encoding="utf-8"))
+                    if r["relevant"] == "y"),
+                1,
+            )
+
+    def test_partly_blank_sheet_never_passes(self):
+        # 100 labels would be enough, but blank rows mean texts nobody read.
+        with tempfile.TemporaryDirectory() as tmp:
+            sheet = self._sheet(tmp, ["y"] * 100 + [""] * 100)
+            out = Path(tmp) / "report.md"
+            original = relevance.REPORT
+            relevance.REPORT = out
+            try:
+                path, stats = relevance.score_review(sheet)
+            finally:
+                relevance.REPORT = original
+            self.assertFalse(stats["passed"])
+            self.assertIn("BELUM LULUS", path.read_text(encoding="utf-8"))
 
 if __name__ == "__main__":
     unittest.main()
