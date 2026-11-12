@@ -26,6 +26,7 @@ Format tanggal: `YYYY-MM-DD`. Jangan hapus baris lama — tambahkan baris baru d
 | 2026-11-12 | Batas teks Reddit | 60 komentar per pemain, 3 thread per (subreddit x istilah), 3 halaman search | Kuota volume agar bintang tidak mendominasi (PRD §12, bias volume) | B |
 | 2026-11-12 | Rate limit Reddit | lantai keras 1,0 detik; config hanya boleh menaikkan | Aturan AGENTS: rate limit >= 1 detik per request | B |
 | 2026-11-12 | Penyimpanan mentah Reddit | `data/raw/reddit/<tag>-<timestamp>/texts.jsonl` + `summary.json`, ditulis sekali | Data mentah tidak boleh tertimpa (AGENTS aturan 5); cache per request juga tidak ditimpa | B |
+| 2026-11-12 | Provider Reddit untuk teks | OAuth tetap jalur utama; actor Apify `automation-lab/reddit-scraper` ditambahkan sebagai provider opsional yang **nonaktif default** | Izin Data API Reddit tidak turun dalam tenggat Hari 1 dan tim memutuskan menanggung risiko pelanggaran User Agreement §7 / PRD §13. Konsekuensinya ditulis di `docs/tahap-b-reddit.md` §3 dan wajib muncul di bagian keterbatasan laporan: dataset mentah tidak bisa direproduksi dosen tanpa akun Apify | B |
 
 ## Perubahan setelah melihat data
 

@@ -57,6 +57,18 @@ make review-score      # writes reports/retrieval_relevance.md, must clear 85%
 make scrape            # full run over the locked sample
 ```
 
+Reddit can be reached two ways. OAuth is the default and the only sanctioned one:
+
+```bash
+python -m src.scrape.run --provider oauth        # default, needs REDDIT_CLIENT_ID/SECRET
+python -m src.scrape.run --provider apify --estimate-cost   # cost only, no request sent
+python -m src.scrape.run --provider apify --pilot 3         # marketplace actor, needs APIFY_TOKEN
+```
+
+The Apify provider is off by default and breaches Reddit's User Agreement; the team
+opted in knowingly, and the consequences that must appear in the report are listed in
+[`docs/tahap-b-reddit.md`](docs/tahap-b-reddit.md) §3 and §"Jalur Apify".
+
 Output per run:
 
 ```text

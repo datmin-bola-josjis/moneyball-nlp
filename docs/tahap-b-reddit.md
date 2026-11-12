@@ -175,7 +175,7 @@ Reddit*. Tapi tiga syaratnya mematikan untuk kasus ini:
 Satu hal yang benar dari saran itu: Devvit **tidak** butuh `prefs/apps`. Tapi
 menggantikan kebutuhan client_id dengan kebutuhan hak moderator bukan kemajuan.
 
-### 3. Actor pihak ketiga di marketplace (Apify dan sejenisnya) — **melanggar ToS, tidak dipakai**
+### 3. Actor pihak ketiga di marketplace (Apify dan sejenisnya) — **melanggar ToS**
 
 Apify Store menjual banyak "Reddit Scraper". Yang paling besar:
 `trudax/reddit-scraper-lite` ($3.40/1.000 hasil, 52,8 ribu pengguna, **22,3%
@@ -206,24 +206,115 @@ menolaknya. Alasan sebenarnya ada tiga:
    "public feeds" atau memakai "short-lived anonymous Chromium bootstrap" —
    yaitu menghindari OAuth, persis yang dilarang Wiki Data API ("Clients must
    authenticate with a registered OAuth token"). Reddit juga sudah menuntut
-   penyedia jasa scraping: *Reddit, Inc. v. SerpApi LLC*, No. 25-cv-8736
+   penyedia jasa scraping: *Reddit, Inc. v. SerpAPI LLC*, No. 25-cv-8736
    (S.D.N.Y.), dengan klaim DMCA yang sebagian besar lolos motion to dismiss
-   pada 31 Juli 2026. Angka 22,3% run sukses pada actor terbesar adalah gejala
+   pada 31 Juli 2026. (Berkas di CourtListener bernama `reddit-v-seprapi.pdf`;
+   "Seprapi" itu salah ketik di nama berkas, bukan nama perkara — kaption
+   perkaranya "SERPAPI LLC".) Angka 22,3% run sukses pada actor terbesar adalah gejala
    blokir itu, bukan bug.
 
-3. **Datanya tidak layak untuk riset.** Actor yang bertahan di "public feed"
-   memberi `score`, `upvoteRatio`, `numComments` = 0 dan komentar tanpa `depth`
-   maupun `parentId`. `automation-lab` menulis sendiri: *"coverage remains
-   unverified"*, `sourceCommentCount` bisa `null`, dan tiap baris membawa
-   `warnings` tentang field yang hilang. Untuk proyek yang metrik kelulusannya
-   adalah **relevansi retrieval ≥ 85% dan jumlah teks per pemain** (PRD §11),
-   data yang bolong tanpa bisa dilacak asal-usulnya adalah masalah, bukan solusi.
-   Angka di laporan juga harus bisa ditelusuri ke skrip di repo (AGENTS.md) —
-   dataset dari marketplace tidak bisa direproduksi oleh dosen.
+3. **Kualitas datanya bergantung pada jalur mana yang dipakai actor.** Jalur
+   normal mengembalikan `parentId` dan `depth` (dengan `-1` kalau tidak diketahui),
+   jadi skema lengkapnya **ada**. Tapi README actor sendiri menyatakan bahwa saat
+   Reddit membatasi akses tanpa login, ia beralih ke "public feeds": di jalur
+   cadangan itu `score`, `upvoteRatio`, dan `numComments` bernilai `0`, komentar
+   kehilangan `depth` dan `parentId`, `subredditSubscribers` selalu `null`, dan
+   `sourceCommentCount` bisa `null`. Setiap baris membawa `warnings`, dan
+   `coverage` tetap *"unverified"* walau kursor habis.
 
-**Kesimpulan:** satu-satunya jalan yang sah dan berfungsi adalah formulir Data API
-di bawah. Ketiga alternatif di atas tidak dipakai, dan alasannya dicatat di sini
-supaya tidak ada yang mengulanginya.
+   Konsekuensinya untuk proyek: kita tidak bisa tahu di muka jalur mana yang
+   dipakai untuk pemain mana, dan metrik kelulusan kita adalah **relevansi
+   retrieval ≥ 85% dan jumlah teks per pemain** (PRD §11). Baris dengan `score 0`
+   yang sebenarnya "tidak diketahui" akan salah dibaca sebagai "skor rendah" kalau
+   dipakai untuk buzz atau filter engagement. Karena itu `apify_reddit.py` tidak
+   memakai `score` sebagai filter dan mencatat `source="reddit_apify"` per baris,
+   sehingga laporan bisa menyebut provider mana yang menghasilkan teks mana.
+
+   Catatan kejujuran metodologis: angka di laporan tetap harus bisa ditelusuri ke
+   skrip di repo (AGENTS.md). Dengan jalur ini, dosen bisa menjalankan ulang
+   skripnya, tapi tidak bisa mereproduksi dataset mentahnya tanpa akun Apify
+   berbayar. Itu harus ditulis di bagian keterbatasan laporan.
+
+**Kesimpulan:** jalan yang sah dan berfungsi hanya formulir Data API di bagian
+awal dokumen ini (dikirim malam Hari 1). Ketiga alternatif di atas tidak dipakai
+untuk jalur utama.
+
+Jalur Apify tetap tersedia di repo sebagai **provider opsional** yang tidak aktif
+secara default (`--provider apify`, `text_sources.reddit.apify.enabled: false`),
+diambil hanya kalau tim secara sadar menerima risikonya. Kode dan konsekuensinya
+ada di `src/scrape/apify_reddit.py`.
+
+## Jalur Apify (dipilih tim, opsional, nonaktif default)
+
+Keputusan tim 2026-11-12: risiko pelanggaran diterima, actor
+`automation-lab/reddit-scraper` dipakai sebagai **provider opsional**. OAuth tetap
+jalur utama; tidak ada yang berubah untuk jalur itu, dan tidak ada kode yang
+bergantung pada Apify.
+
+### Menyalakan
+
+1. Isi `APIFY_TOKEN` di `.env` (token dari
+   <https://console.apify.com/settings/integrations>). Tidak dipakai oleh jalur OAuth.
+2. Nyalakan di `config/config.yaml`:
+
+   ```yaml
+   text_sources:
+     reddit:
+       apify:
+         enabled: true
+   ```
+
+3. Cek biaya dulu, tanpa menjalankan apa pun:
+
+   ```bash
+   python -m src.scrape.run --provider apify --estimate-cost
+   ```
+
+4. Pilot kecil dulu (3 pemain), bukan langsung 70:
+
+   ```bash
+   python -m src.scrape.run --provider apify --pilot 3
+   ```
+
+### Kuota dan biaya
+
+Harga pay-per-result tier gratis: $0.00115/post, $0.00075/komentar, $0.003/run.
+
+Yang penting: **komentar ditagih per post**, bukan per pemain. Actor menarik
+hingga `max_comments_per_post` dari *setiap* post yang ia kembalikan, jadi
+biayanya = pemain × post × komentar per post. Setelan awal 5 post × 12 komentar
+memberi kuota 60 teks per pemain (sesuai PRD) dengan estimasi:
+
+| Cakupan | Post | Komentar | Estimasi |
+|---|---|---|---|
+| pilot 3 pemain | 15 | 180 | **$0.16** |
+| pilot 20 pemain | 100 | 1.200 | **$1.07** |
+| sampel penuh 70 | 350 | 4.200 | **$3.76** |
+
+`max_cost_usd` di config adalah pagar keras: kalau estimasi melewatinya, script
+berhenti sebelum satu request pun dikirim. Menaikkan `maxCommentsPerPost` ke 100
+(seperti contoh di README actor) akan meledakkan biaya ke puluhan dolar — jangan.
+
+### Yang perlu ditulis di laporan
+
+- Reddit diperoleh lewat actor pihak ketiga, bukan Data API resmi.
+- `score`/`upvoteRatio` bisa `0` karena "tidak diketahui", bukan "rendah". Skrip
+  karena itu **tidak** memakai `score` sebagai filter atau untuk buzz.
+- Dataset mentah tidak bisa direproduksi dosen tanpa akun Apify berbayar; hanya
+  skripnya yang bisa dijalankan ulang.
+
+### Batasan teknis yang sudah ditangani kode
+
+- Setiap baris diberi `source="reddit_apify"`, jadi asal-usul teks bisa
+  dilaporkan per baris.
+- `text_id` memuat `player_id`, jadi satu komentar yang menyebut dua pemain
+  menghasilkan dua record berbeda tanpa tabrakan kunci join.
+- Hanya teks yang benar-benar menyebut pemain yang disimpan (aturan 3), dan hanya
+  di dalam jendela musim.
+- Payload mentah actor disimpan per pemain di
+  `data/raw/reddit/<tag>-<timestamp>/<player_id>.items.json` beserta
+  `.input.json`-nya, tidak pernah ditimpa.
+- Jumlah teks per pemain dicetak dan pemain tanpa teks disebut namanya.
 
 ## Kalau disetujui
 

@@ -110,6 +110,18 @@ text_sources:
     rate_limit_seconds: 1.0     # lantai keras 1 detik, tidak bisa diturunkan
     cache_dir: "data/raw/reddit"
 
+    # ------------------------------------------------------------ B3. Provider Apify
+    # Jalur cadangan: actor pihak ketiga `automation-lab/reddit-scraper`.
+    # DIPILIH TIM pada 2026-11-12 setelah izin Data API Reddit tidak turun.
+    # Konsekuensi yang sudah diketahui dan diterima: melanggar Reddit User
+    # Agreement §7 dan PRD §13 (lihat docs/tahap-b-reddit.md §3 serta
+    # docs/decisions.md). Nonaktif secara default; OAuth adalah jalur utama.
+    apify:
+      enabled: false            # ubah ke true hanya kalau tim memutuskan memakai jalur ini
+      max_posts_per_player: 5   # kuota 60 teks/pemain tercapai lewat 5 post x 12 komentar
+      max_comments_per_post: 12 # actor menagih per komentar PER POST, bukan per pemain
+      max_cost_usd: 6.0         # pagar biaya; estimasi dicetak sebelum jalan
+
   youtube:
     enabled: true
     use_playlist_items: true    # WAJIB true: search.list mahal kuotanya

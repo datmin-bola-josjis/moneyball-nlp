@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.scrape import relevance, subreddits  # noqa: E402
+from src.scrape import apify_reddit, relevance, subreddits  # noqa: E402
 from src.scrape.aliases import AliasIndex, normalize  # noqa: E402
 from src.scrape.players import Player, club_needles, pilot_subset  # noqa: E402
 from src.scrape.reddit import (  # noqa: E402
@@ -392,6 +392,121 @@ class RetentionTests(unittest.TestCase):
         record = self._extract(client)[0]
         self.assertNotIn("author", asdict(record))
         self.assertIn("text_clean_hash", asdict(record))
+
+
+class ApifyProviderTests(unittest.TestCase):
+    """The mapping layer is pure: actor-shaped dicts in, TextRecord out."""
+
+    WINDOW = (1751328000.0, 1780271999.0)  # 2025-07-01 .. 2026-05-31 23:59:59Z
+
+    def _post(self, **kw):
+        base = {
+            "type": "post",
+            "id": "p1",
+            "title": "Bruno G. masterclass",
+            "selfText": "Bruno Guimaraes ran the midfield all evening, superb.",
+            "author": "someone",
+            "subreddit": "NUFC",
+            "createdAt": "2025-11-20T10:00:00.000Z",
+            "permalink": "/r/NUFC/comments/p1/x/",
+            "score": 0,
+        }
+        base.update(kw)
+        return base
+
+    def _comment(self, **kw):
+        base = {
+            "type": "comment",
+            "id": "c1",
+            "body": "Bruno Guimaraes was everywhere tonight and never stopped pressing.",
+            "author": "fan",
+            "subreddit": "NUFC",
+            "createdAt": "2025-11-20T11:00:00.000Z",
+            "permalink": "/r/NUFC/comments/p1/x/c1/",
+            "postId": "p1",
+            "score": 4,
+        }
+        base.update(kw)
+        return base
+
+    def setUp(self):
+        self.index = AliasIndex.build([BRUNO_G, JOELINTON])
+
+    def _map(self, items, player=BRUNO_G, min_words=8):
+        return apify_reddit.records_from_items(items, player, self.index, min_words, self.WINDOW)
+
+    def test_comment_and_sentences_are_produced(self):
+        records = self._map([self._comment()])
+        kinds = [r.unit_type for r in records]
+        self.assertEqual(kinds[0], "comment")
+        self.assertIn("sentence", kinds)
+        self.assertEqual(records[0].source, "reddit_apify")
+        self.assertEqual(records[0].player_id, BRUNO_G.player_id)
+
+    def test_text_id_carries_player_id_so_two_players_never_collide(self):
+        both = [self._comment(body="Bruno Guimaraes and Joelinton dominated the midfield tonight.")]
+        bruno = self._map(both, player=BRUNO_G)
+        joel = self._map(both, player=JOELINTON)
+        self.assertTrue(bruno and joel)
+        self.assertFalse({r.text_id for r in bruno} & {r.text_id for r in joel})
+
+    def test_text_about_another_player_is_dropped(self):
+        self.assertEqual(self._map([self._comment(body="Joelinton was unplayable in that half, honestly.")]), [])
+
+    def test_out_of_season_text_is_dropped(self):
+        self.assertEqual(self._map([self._comment(createdAt="2026-08-01T00:00:00.000Z")]), [])
+
+    def test_short_text_is_dropped(self):
+        self.assertEqual(self._map([self._comment(body="Bruno good.")]), [])
+
+    def test_duplicate_text_kept_once(self):
+        dup = self._comment()
+        comments = [r for r in self._map([dup, dict(dup)]) if r.unit_type == "comment"]
+        self.assertEqual(len(comments), 1)
+
+    def test_missing_score_does_not_crash(self):
+        # The actor emits score 0 or omits it on the public-feed path.
+        records = self._map([self._comment(score=None)])
+        self.assertTrue(records)
+        self.assertEqual(records[0].engagement, 0)
+
+    def test_empty_and_malformed_items_are_ignored(self):
+        items = [{}, {"type": "weird"}, {"type": "post"}]
+        self.assertEqual(self._map(items), [])
+
+    def test_cost_estimate_charges_comments_per_post(self):
+        # 5 posts x 12 comments = 60 comments per player, not 12.
+        est = apify_reddit.estimate_cost(10, 5, 12)
+        self.assertEqual(est["posts"], 50)
+        self.assertEqual(est["comments"], 600)
+
+    def test_actor_input_is_player_scoped(self):
+        cfg = {"max_posts_per_player": 5, "max_comments_per_post": 12}
+        payload = apify_reddit.build_input(BRUNO_G, self.index, cfg)
+        self.assertEqual(payload["maxPostsPerSource"], 5)
+        self.assertEqual(payload["maxCommentsPerPost"], 12)
+        self.assertTrue(payload["includeComments"])
+        self.assertEqual(payload["searchSubreddit"], "NUFC")
+        self.assertEqual(payload["searchQueries"], ["Bruno Guimarães"])
+
+    def test_disabled_provider_refuses_to_run(self):
+        with self.assertRaises(SystemExit):
+            apify_reddit.run([BRUNO_G], client=object())
+
+    def test_cost_cap_blocks_the_run_before_any_request(self):
+        cfg = apify_reddit.load_config()
+        apify_cfg = cfg["text_sources"]["reddit"]["apify"]
+        original = dict(apify_cfg)
+        apify_cfg.update(
+            {"enabled": True, "max_posts_per_player": 5, "max_comments_per_post": 100,
+             "max_cost_usd": 0.01}
+        )
+        try:
+            with self.assertRaises(SystemExit) as ctx:
+                apify_reddit.run([BRUNO_G], client=object())
+            self.assertIn("exceeds", str(ctx.exception))
+        finally:
+            apify_cfg.update(original)
 
 
 class RawOutputTests(unittest.TestCase):

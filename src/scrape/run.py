@@ -17,7 +17,7 @@ import logging
 import sys
 
 from src.config import ROOT, load_config
-from src.scrape import relevance, subreddits
+from src.scrape import apify_reddit, relevance, subreddits
 from src.scrape.aliases import AliasIndex
 from src.scrape.players import DEFAULT_PLAYERS, load_players, market_values, pilot_subset
 from src.scrape.reddit import run as run_reddit
@@ -58,6 +58,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--score", action="store_true", help="score the filled relevance sheet")
     parser.add_argument("--tag", help="run tag to draw from, e.g. pilot20 (default: newest)")
     parser.add_argument("--n-sample", type=int, default=100, help="texts to draw for review")
+    parser.add_argument(
+        "--provider",
+        choices=["oauth", "apify"],
+        default="oauth",
+        help="reddit retrieval path: oauth (default, ToS-compliant) or apify (marketplace actor)",
+    )
+    parser.add_argument(
+        "--estimate-cost", action="store_true", help="print the apify cost estimate and exit"
+    )
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args(argv)
     _configure_logging(args.verbose)
@@ -78,6 +87,25 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{path}: {stats['rate']:.1%} relevant on {stats['labelled']} labelled texts")
         return 0
 
+    if args.estimate_cost:
+        apify_cfg = load_config()["text_sources"]["reddit"]["apify"]
+        chosen = (
+            _sample_players()
+            if args.players is None
+            else load_players(args.players)
+        )
+        est = apify_reddit.estimate_cost(
+            len(chosen),
+            int(apify_cfg.get("max_posts_per_player", 10)),
+            int(apify_cfg.get("max_comments_per_post", 100)),
+        )
+        print(
+            f"apify estimate: {est['players']} players, ~{est['posts']} posts, "
+            f"~{est['comments']} comments -> ${est['usd']:.2f} "
+            f"(cap ${apify_cfg.get('max_cost_usd')})"
+        )
+        return 0
+
     if args.pilot:
         population_path = args.players or DEFAULT_PLAYERS
         chosen = pilot_subset(
@@ -88,10 +116,12 @@ def main(argv: list[str] | None = None) -> int:
             "pilot players: %d, ambiguous aliases needing club context: %d",
             len(chosen), len(index.alias_debug()),
         )
-        run_reddit(chosen, tag=f"pilot{args.pilot}")
+        runner = apify_reddit.run if args.provider == "apify" else run_reddit
+        runner(chosen, tag=f"pilot{args.pilot}")
         return 0
 
-    run_reddit(_sample_players(), tag="full")
+    runner = apify_reddit.run if args.provider == "apify" else run_reddit
+    runner(_sample_players(), tag="full")
     return 0
 
 
