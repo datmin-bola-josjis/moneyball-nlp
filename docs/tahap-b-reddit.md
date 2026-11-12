@@ -118,12 +118,12 @@ Deleted or removed Reddit content is not retained: the scraper skips
 before the final aggregates are produced.
 ```
 
-## Dua alternatif yang beredar — tidak dipakai, ini alasannya
+## Tiga alternatif yang beredar — tidak dipakai, ini alasannya
 
-Banyak panduan menyarankan dua jalan pintas. Bedanya: yang pertama **diuji
-langsung** pada 2026-11-12 dari mesin proyek ini; yang kedua **dibaca dari
+Banyak panduan menyarankan jalan pintas. Bedanya: yang pertama **diuji langsung**
+pada 2026-11-12 dari mesin proyek ini; yang kedua dan ketiga **dibaca dari
 dokumentasi resminya** dan tidak dijalankan (alasan tidak dijalankan ada di
-bawah — menjalankannya butuh hak moderator). Hasilnya:
+bawah). Hasilnya:
 
 ### 1. Endpoint `.json` publik tanpa OAuth — **403, mati**
 
@@ -175,8 +175,54 @@ Reddit*. Tapi tiga syaratnya mematikan untuk kasus ini:
 Satu hal yang benar dari saran itu: Devvit **tidak** butuh `prefs/apps`. Tapi
 menggantikan kebutuhan client_id dengan kebutuhan hak moderator bukan kemajuan.
 
+### 3. Actor pihak ketiga di marketplace (Apify dan sejenisnya) — **melanggar ToS, tidak dipakai**
+
+Apify Store menjual banyak "Reddit Scraper". Yang paling besar:
+`trudax/reddit-scraper-lite` ($3.40/1.000 hasil, 52,8 ribu pengguna, **22,3%
+run sukses**) dan `automation-lab/reddit-scraper` ($1.15/1.000 post,
+99,7% run sukses, tanpa login).
+
+**Biayanya bukan masalah.** Untuk beban kerja kita — 70 pemain × 60 komentar
+≈ 4.200 komentar + ±700 post ≈ **$4 di tier gratis**. Uang bukan alasan
+menolaknya. Alasan sebenarnya ada tiga:
+
+1. **Reddit melarangnya secara tegas.** [Reddit User Agreement §7](https://www.redditinc.com/policies/user-agreement-march-31-2026)
+   (efektif 31 Maret 2026) masuk daftar "Things You Cannot Do":
+
+   > "Access, search, or collect data from the Services by any means (automated or
+   > otherwise) except as permitted in these Terms or in a separate agreement with
+   > Reddit (we conditionally grant permission to crawl the Services in accordance
+   > with the parameters set forth in our robots.txt file, but **scraping the
+   > Services without Reddit's prior written consent is prohibited**)."
+
+   Actor di marketplace bukan "separate agreement" antara kita dan Reddit. Kita
+   tidak punya izin tertulis; membeli jasa perantara tidak menciptakan izin itu.
+   Menyuruh pihak ketiga melanggar untuk kita tetap pelanggaran oleh kita.
+
+2. **Actor-nya sendiri bergantung pada kredensial atau trik yang sama.** Yang
+   paling populer justru **meminta cookie `reddit_session`** milik akun Reddit
+   pribadi kita — artinya kita menyerahkan sesi login ke pihak ketiga dan
+   aktivitas otomatis itu menempel ke akun kita. Yang lain mengaku membaca
+   "public feeds" atau memakai "short-lived anonymous Chromium bootstrap" —
+   yaitu menghindari OAuth, persis yang dilarang Wiki Data API ("Clients must
+   authenticate with a registered OAuth token"). Reddit juga sudah menuntut
+   penyedia jasa scraping: *Reddit, Inc. v. SerpApi LLC*, No. 25-cv-8736
+   (S.D.N.Y.), dengan klaim DMCA yang sebagian besar lolos motion to dismiss
+   pada 31 Juli 2026. Angka 22,3% run sukses pada actor terbesar adalah gejala
+   blokir itu, bukan bug.
+
+3. **Datanya tidak layak untuk riset.** Actor yang bertahan di "public feed"
+   memberi `score`, `upvoteRatio`, `numComments` = 0 dan komentar tanpa `depth`
+   maupun `parentId`. `automation-lab` menulis sendiri: *"coverage remains
+   unverified"*, `sourceCommentCount` bisa `null`, dan tiap baris membawa
+   `warnings` tentang field yang hilang. Untuk proyek yang metrik kelulusannya
+   adalah **relevansi retrieval ≥ 85% dan jumlah teks per pemain** (PRD §11),
+   data yang bolong tanpa bisa dilacak asal-usulnya adalah masalah, bukan solusi.
+   Angka di laporan juga harus bisa ditelusuri ke skrip di repo (AGENTS.md) —
+   dataset dari marketplace tidak bisa direproduksi oleh dosen.
+
 **Kesimpulan:** satu-satunya jalan yang sah dan berfungsi adalah formulir Data API
-di bawah. Kedua alternatif di atas tidak dipakai, dan alasannya dicatat di sini
+di bawah. Ketiga alternatif di atas tidak dipakai, dan alasannya dicatat di sini
 supaya tidak ada yang mengulanginya.
 
 ## Kalau disetujui
