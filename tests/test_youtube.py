@@ -19,6 +19,7 @@ from src.scrape.aliases import AliasIndex
 from src.scrape.youtube import (
     ChannelSource,
     VideoCandidate,
+    extract_for_player,
     match_videos,
     records_from_comment,
     run,
@@ -205,6 +206,39 @@ def test_author_identity_is_not_part_of_the_record() -> None:
 
     blob = json.dumps([r.__dict__ for r in records])
     assert "Real Person" not in blob
+
+
+def test_quota_counts_comments_not_sentences() -> None:
+    """`max_texts_per_player` must cap comments, not comments plus sentences.
+
+    Counting both halved the real yield: 20 comments and their 20 sentences hit
+    a cap of 40, so the configured 40 comments were never reached.
+    """
+    index = AliasIndex.build([SAKA])
+    page = {
+        "items": [
+            {
+                "snippet": {
+                    "topLevelComment": {
+                        "snippet": {
+                            "id": f"c{i}",
+                            "textDisplay": f"Saka was clinical in phase {i} and never stopped running",
+                            "publishedAt": "2026-03-01T10:00:00Z",
+                            "likeCount": 1,
+                        }
+                    }
+                }
+            }
+            for i in range(4)
+        ]
+    }
+    client = FakeClient(comment_pages={"v1": [page]})
+
+    records = extract_for_player(client, SAKA, [make_video()], index, LEAGUE_CLUBS, 2, 8)
+
+    comments = [r for r in records if r.unit_type == "comment"]
+    assert len(comments) == 2, "the quota is in comments, so two comments are kept"
+    assert len(records) == 4, "their sentences come along without spending the quota"
 
 
 # ------------------------------------------------------------------------ run

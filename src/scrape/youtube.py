@@ -381,25 +381,29 @@ def extract_for_player(
     counters = counters if counters is not None else {}
     records: list[YouTubeTextRecord] = []
     seen_hashes: set[str] = set()
+    # `max_texts_per_player` caps COMMENTS. Counting sentences against the same
+    # budget halved the yield: 20 comments plus their 20 sentences reached the
+    # cap of 40, so no player ever got the 40 comments the config promises.
+    kept_comments = 0
 
     for video in videos:
-        if len(records) >= quota:
+        if kept_comments >= quota:
             break
         context = _thread_context(index, video, player, league_clubs)
         try:
             pages = client.iter_comment_threads(video.video_id, max_pages=MAX_COMMENT_PAGES)
             for page in pages:
                 for thread in page.get("items") or []:
-                    if len(records) >= quota:
+                    if kept_comments >= quota:
                         break
                     top = ((thread.get("snippet") or {}).get("topLevelComment") or {}).get("snippet")
                     if not top:
                         continue
-                    records.extend(
-                        records_from_comment(
-                            top, video, player, index, league_clubs, min_words, seen_hashes, context
-                        )
+                    added = records_from_comment(
+                        top, video, player, index, league_clubs, min_words, seen_hashes, context
                     )
+                    records.extend(added)
+                    kept_comments += sum(1 for r in added if r.unit_type == "comment")
         except CommentsDisabled:
             counters["comments_disabled"] = counters.get("comments_disabled", 0) + 1
             log.debug("comments disabled: %s (%s)", video.video_id, video.title[:50])
