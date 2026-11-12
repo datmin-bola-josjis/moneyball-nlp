@@ -315,6 +315,14 @@ berhenti sebelum satu request pun dikirim. Menaikkan `maxCommentsPerPost` ke 100
   `data/raw/reddit/<tag>-<timestamp>/<player_id>.items.json` beserta
   `.input.json`-nya, tidak pernah ditimpa.
 - Jumlah teks per pemain dicetak dan pemain tanpa teks disebut namanya.
+- Filter yang sama dengan jalur OAuth, karena didefinisikan sekali di
+  `AliasIndex.resolves` dan dipakai kedua provider: bot/`[deleted]`/`[removed]`,
+  bahasa Inggris, konteks klub untuk nama ambigu (aturan 17), dan kuota
+  `max_texts_per_player`.
+- `subreddit` tidak ada di item `comment` skema `default`; nilainya diwarisi dari
+  post induk lewat `postId`, lalu dari `permalink` sebagai cadangan.
+- Post hanya dipakai sebagai pembawa konteks, tidak disimpan sebagai teks:
+  `unit_type` terkunci ke `comment`/`sentence` (PRD §8), sama seperti jalur OAuth.
 
 ## Kalau disetujui
 

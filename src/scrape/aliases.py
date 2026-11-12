@@ -136,6 +136,27 @@ class AliasIndex:
         needles = [normalize(n) for n in club_needles(player.club, league_clubs)]
         return any(needle and f" {needle} " in haystack for needle in needles)
 
+    def resolves(
+        self,
+        alias: str | None,
+        text: str,
+        player_id: str,
+        league_clubs: Iterable[str],
+        implicit_club: bool = False,
+    ) -> bool:
+        """Is this mention safe to link to the player? (AGENTS.md rule 17)
+
+        A specific alias resolves on its own. A bare surname ("Silva") survives
+        only when the text itself pins it to the player's club, or the text came
+        from that club's own subreddit. Every provider must go through here, so
+        the disambiguation rule cannot drift between retrieval paths.
+        """
+        if not alias:
+            return False
+        if not self.is_ambiguous(alias):
+            return True
+        return self.has_context(text, player_id, league_clubs, implicit_club)
+
     def alias_debug(self) -> list[tuple[str, list[str]]]:
         """Ambiguous aliases and their owners - the Day 1 audit list."""
         rows = []

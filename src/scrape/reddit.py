@@ -253,12 +253,7 @@ def _records_from_comment(
     in_club_sub = (comment.get("subreddit") or "").lower() in club_subs
 
     def resolves(alias: str | None, text: str) -> bool:
-        """Ambiguous aliases survive only with club context (AGENTS.md rule 17)."""
-        if not alias:
-            return False
-        if not index.is_ambiguous(alias):
-            return True
-        return index.has_context(text, player.player_id, league_clubs, in_club_sub)
+        return index.resolves(alias, text, player.player_id, league_clubs, in_club_sub)
 
     # Whole-comment record: kept only when the comment really names the player.
     alias = index.find_mentions(cleaned, player.player_id)

@@ -40,7 +40,14 @@ from src.scrape.reddit import (
     unique_raw_dir,
     write_jsonl,
 )
-from src.scrape.textops import clean_text, split_sentences, text_hash, word_count
+from src.scrape.textops import (
+    clean_text,
+    is_bot_like,
+    is_english,
+    split_sentences,
+    text_hash,
+    word_count,
+)
 
 log = logging.getLogger("reddit.apify")
 
@@ -170,44 +177,94 @@ def _utc(value: str | None) -> float:
         return 0.0
 
 
+_DELETED = {"[deleted]", "[removed]"}
+
+
+def _subreddit_of(item: dict, by_post: dict[str, str]) -> str:
+    """Resolve the subreddit for a record.
+
+    Comment items in the actor's `default` schema carry no `subreddit`, so it is
+    inherited from the parent post, then read out of the permalink. Leaving it
+    blank would silently break the per-subreddit relevance table in the report.
+    """
+    name = item.get("subreddit")
+    if name:
+        return str(name)
+    post_id = str(item.get("postId") or "")
+    if post_id and post_id in by_post:
+        return by_post[post_id]
+    parts = str(item.get("permalink") or "").split("/")
+    if len(parts) > 2 and parts[1] == "r" and parts[2]:
+        return parts[2]
+    return ""
+
+
 def records_from_items(
     items: list[dict],
     player: Player,
     index: AliasIndex,
     min_words: int,
     window: tuple[float, float],
+    league_clubs: list[str] | None = None,
+    club_subreddits: list[str] | None = None,
+    quota: int | None = None,
 ) -> list[TextRecord]:
-    """Map actor output onto TextRecord, keeping only this player's mentions.
+    """Map actor output onto TextRecord with the same filters as the OAuth path.
 
-    The actor returns whole posts and their comment trees; a post or comment is
-    kept only if the text itself names the player, so a thread about a different
-    player never becomes evidence for this one (AGENTS.md rule 3).
+    The actor returns whole posts and their comment trees, so this function has
+    to apply every rule the OAuth reader applies - otherwise the two providers
+    would produce datasets with different definitions of "a text":
+      * bot, `[deleted]`, `[removed]` and non-English units are dropped;
+      * an ambiguous alias needs club context (AGENTS.md rule 17);
+      * at most `quota` units per player, so a star cannot dominate volume;
+      * a post or comment is kept only if it names the player (rule 3).
     """
     season_start, season_end = window
+    league_clubs = league_clubs or []
+    club_subs = {s.lower() for s in (club_subreddits or [])}
     records: list[TextRecord] = []
     seen_hashes: set[str] = set()
+    units = 0
+
+    # Posts first so comments can inherit their subreddit (actor omits it).
+    by_post: dict[str, str] = {}
+    for item in items:
+        if item.get("type") == "post" and item.get("id") and item.get("subreddit"):
+            by_post[str(item["id"])] = str(item["subreddit"])
 
     for item in items:
-        kind = item.get("type")
-        if kind not in {"post", "comment"}:
+        if quota is not None and units >= quota:
+            break
+        # Posts are carriers, not evidence: PRD §8 locks `unit_type` to
+        # comment/sentence/transcript_segment, and the OAuth path stores only
+        # comments. Keeping their text would also double-count a mention that
+        # reappears in the comments.
+        if item.get("type") != "comment":
             continue
         raw_body = (item.get("body") or item.get("selfText") or "").strip()
-        if not raw_body:
+        if not raw_body or raw_body in _DELETED:
             continue
         cleaned = clean_text(raw_body)
         if word_count(cleaned) < min_words:
+            continue
+        if not is_english(cleaned):
+            continue
+        if is_bot_like(str(item.get("author") or ""), cleaned):
             continue
         created = _utc(item.get("createdAt"))
         if not (season_start <= created <= season_end):
             continue
 
+        subreddit = _subreddit_of(item, by_post)
+        in_club_sub = subreddit.lower() in club_subs
         alias = index.find_mentions(cleaned, player.player_id)
-        if not alias:
+        if not index.resolves(alias, cleaned, player.player_id, league_clubs, in_club_sub):
             continue
         body_hash = text_hash(cleaned)
         if body_hash in seen_hashes:
             continue
         seen_hashes.add(body_hash)
+        units += 1
 
         item_id = str(item.get("id") or body_hash)
         # Same convention as the OAuth path: the player is part of the key, so
@@ -224,13 +281,13 @@ def records_from_items(
             ),
             url=f"https://www.reddit.com{item.get('permalink', '')}",
             thread_id=post_id,
-            subreddit=item.get("subreddit") or "",
+            subreddit=subreddit,
             engagement=int(item.get("score") or 0),
         )
         records.append(
             TextRecord(
                 text_id=text_id,
-                unit_type="comment" if kind == "comment" else "post",
+                unit_type="comment",
                 text_clean=cleaned,
                 text_clean_hash=body_hash,
                 matched_alias=alias,
@@ -240,7 +297,9 @@ def records_from_items(
         )
         for i, sentence in enumerate(split_sentences(cleaned)):
             sentence_alias = index.find_mentions(sentence, player.player_id)
-            if not sentence_alias:
+            if not index.resolves(
+                sentence_alias, sentence, player.player_id, league_clubs, in_club_sub
+            ):
                 continue
             records.append(
                 TextRecord(
@@ -289,6 +348,8 @@ def run(
     index = AliasIndex.build(players)
     window = epoch_window()
     min_words = int(load_config()["text_sources"]["reddit"].get("min_words", 8))
+    league_clubs = load_config()["league"].get("clubs", [])
+    quota = int(load_config()["text_sources"]["reddit"].get("max_texts_per_player", 60))
 
     base = root or ROOT
     raw_dir = unique_raw_dir(tag, base=base / "data" / "raw" / "reddit")
@@ -305,7 +366,16 @@ def run(
         (raw_dir / f"{player.player_id}.items.json").write_text(
             json.dumps(items, indent=2), encoding="utf-8"
         )
-        records = records_from_items(items, player, index, min_words, window)
+        records = records_from_items(
+            items,
+            player,
+            index,
+            min_words,
+            window,
+            league_clubs=league_clubs,
+            club_subreddits=player_club_subreddits(player),
+            quota=quota,
+        )
         per_player[player.name] = sum(1 for r in records if r.unit_type == "comment")
         all_records.extend(records)
         log.info(
@@ -321,7 +391,6 @@ def run(
         "provider": ACTOR,
         "players": len(players),
         "comments": sum(1 for r in all_records if r.unit_type == "comment"),
-        "posts": sum(1 for r in all_records if r.unit_type == "post"),
         "sentences": sum(1 for r in all_records if r.unit_type == "sentence"),
         "estimated_usd": est["usd"],
         "per_player": per_player,
@@ -332,8 +401,8 @@ def run(
     interim = base / "data" / "interim" / f"texts_reddit_{tag}.jsonl"
     write_jsonl(rows, interim)
     log.info(
-        "apify kept %d comments / %d posts / %d sentences -> %s (raw: %s)",
-        summary["comments"], summary["posts"], summary["sentences"], interim, raw_dir.name,
+        "apify kept %d comments / %d sentences -> %s (raw: %s)",
+        summary["comments"], summary["sentences"], interim, raw_dir.name,
     )
     if empty:
         log.warning("no texts for %d players: %s", len(empty), ", ".join(empty[:10]))

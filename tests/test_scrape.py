@@ -420,7 +420,8 @@ class ApifyProviderTests(unittest.TestCase):
             "id": "c1",
             "body": "Bruno Guimaraes was everywhere tonight and never stopped pressing.",
             "author": "fan",
-            "subreddit": "NUFC",
+            # NOTE: the actor's `default` comment schema has no `subreddit`;
+            # it must be inherited from the parent post or the permalink.
             "createdAt": "2025-11-20T11:00:00.000Z",
             "permalink": "/r/NUFC/comments/p1/x/c1/",
             "postId": "p1",
@@ -432,8 +433,10 @@ class ApifyProviderTests(unittest.TestCase):
     def setUp(self):
         self.index = AliasIndex.build([BRUNO_G, JOELINTON])
 
-    def _map(self, items, player=BRUNO_G, min_words=8):
-        return apify_reddit.records_from_items(items, player, self.index, min_words, self.WINDOW)
+    def _map(self, items, player=BRUNO_G, min_words=8, **kw):
+        return apify_reddit.records_from_items(
+            items, player, self.index, min_words, self.WINDOW, **kw
+        )
 
     def test_comment_and_sentences_are_produced(self):
         records = self._map([self._comment()])
@@ -442,6 +445,101 @@ class ApifyProviderTests(unittest.TestCase):
         self.assertIn("sentence", kinds)
         self.assertEqual(records[0].source, "reddit_apify")
         self.assertEqual(records[0].player_id, BRUNO_G.player_id)
+
+    def test_unit_type_never_leaves_the_locked_schema(self):
+        # PRD §8: comment | sentence | transcript_segment. Posts are carriers.
+        records = self._map([self._post()])
+        self.assertTrue(all(r.unit_type in {"comment", "sentence"} for r in records))
+        self.assertEqual(records, [])
+
+    def test_comment_inherits_subreddit_from_parent_post(self):
+        records = self._map([self._post(), self._comment()])
+        self.assertTrue(records)
+        self.assertEqual({r.subreddit for r in records}, {"NUFC"})
+
+    def test_subreddit_falls_back_to_permalink(self):
+        # No post in the payload, so only the permalink can supply it.
+        records = self._map([self._comment()])
+        self.assertEqual({r.subreddit for r in records}, {"NUFC"})
+
+    def test_deleted_and_removed_units_are_dropped(self):
+        self.assertEqual(self._map([self._comment(body="[deleted]")]), [])
+        self.assertEqual(self._map([self._comment(body="[removed]")]), [])
+
+    def test_bot_comments_are_dropped(self):
+        bot = self._comment(
+            body="I am a bot, and this action was performed automatically. Bruno Guimaraes.",
+        )
+        self.assertEqual(self._map([bot]), [])
+        automod = self._comment(author="AutoModerator")
+        self.assertEqual(self._map([automod]), [])
+
+    def test_non_english_is_dropped(self):
+        self.assertEqual(
+            self._map([self._comment(body="Bruno Guimaraes bermain sangat bagus malam ini kawan.")]),
+            [],
+        )
+
+    def test_ambiguous_alias_without_club_context_is_dropped(self):
+        index = AliasIndex.build([BRUNO_G, BERNARDO, SILVA])
+        bare = self._comment(body="Bernardo was quiet again and offered nothing going forward.")
+        records = apify_reddit.records_from_items(
+            [bare], BERNARDO, index, 8, self.WINDOW, league_clubs=CLUBS
+        )
+        self.assertEqual(records, [])
+
+    def test_ambiguous_alias_resolves_with_club_context(self):
+        index = AliasIndex.build([BRUNO_G, BERNARDO, SILVA])
+        named = self._comment(
+            body="Bernardo was excellent, Manchester City controlled midfield from the first minute."
+        )
+        records = apify_reddit.records_from_items(
+            [named], BERNARDO, index, 8, self.WINDOW, league_clubs=CLUBS
+        )
+        self.assertTrue(records)
+
+    def test_own_club_subreddit_supplies_context(self):
+        # Comment sits in MCFC, Bernardo's own club sub: the bare surname is safe.
+        index = AliasIndex.build([BRUNO_G, BERNARDO, SILVA])
+        bare = self._comment(
+            body="Bernardo was quiet again and offered nothing going forward.",
+            permalink="/r/MCFC/comments/p1/x/c1/",
+        )
+        records = apify_reddit.records_from_items(
+            [bare],
+            BERNARDO,
+            index,
+            8,
+            self.WINDOW,
+            league_clubs=CLUBS,
+            club_subreddits=["MCFC"],
+        )
+        self.assertTrue(records)
+
+    def test_other_club_subreddit_gives_no_context(self):
+        # Same bare surname, but posted in Newcastle's sub. That is not evidence
+        # that the comment is about Manchester City's Bernardo.
+        index = AliasIndex.build([BRUNO_G, BERNARDO, SILVA])
+        bare = self._comment(body="Bernardo was quiet again and offered nothing going forward.")
+        records = apify_reddit.records_from_items(
+            [bare],
+            BERNARDO,
+            index,
+            8,
+            self.WINDOW,
+            league_clubs=CLUBS,
+            club_subreddits=["MCFC"],
+        )
+        self.assertEqual(records, [])
+
+    def test_quota_caps_units_per_player(self):
+        bodies = [
+            f"Bruno Guimaraes dictated the tempo again in game number {i}, unreal."
+            for i in range(6)
+        ]
+        items = [self._comment(id=f"c{i}", body=b) for i, b in enumerate(bodies)]
+        comments = [r for r in self._map(items, quota=2) if r.unit_type == "comment"]
+        self.assertEqual(len(comments), 2)
 
     def test_text_id_carries_player_id_so_two_players_never_collide(self):
         both = [self._comment(body="Bruno Guimaraes and Joelinton dominated the midfield tonight.")]
