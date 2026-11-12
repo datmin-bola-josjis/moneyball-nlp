@@ -239,17 +239,31 @@ menolaknya. Alasan sebenarnya ada tiga:
 awal dokumen ini (dikirim malam Hari 1). Ketiga alternatif di atas tidak dipakai
 untuk jalur utama.
 
-Jalur Apify tetap tersedia di repo sebagai **provider opsional** yang tidak aktif
-secara default (`--provider apify`, `text_sources.reddit.apify.enabled: false`),
-diambil hanya kalau tim secara sadar menerima risikonya. Kode dan konsekuensinya
-ada di `src/scrape/apify_reddit.py`.
+Jalur Actor di marketplace sudah ditolak; lihat §3 di atas. Kodenya tetap ada di
+`src/scrape/apify_reddit.py` sebagai catatan teknis dan **tidak dijalankan**
+(`text_sources.reddit.apify.enabled: false`).
 
-## Jalur Apify (dipilih tim, opsional, nonaktif default)
+## Jalur Apify — **dinonaktifkan** (catatan, bukan jalur yang dipakai)
 
-Keputusan tim 2026-11-12: risiko pelanggaran diterima, actor
-`automation-lab/reddit-scraper` dipakai sebagai **provider opsional**. OAuth tetap
-jalur utama; tidak ada yang berubah untuk jalur itu, dan tidak ada kode yang
-bergantung pada Apify.
+Keputusan tim 2026-11-12 sempat: risiko pelanggaran diterima, actor
+`automation-lab/reddit-scraper` dipakai sebagai provider opsional. **Keputusan itu
+dibatalkan di hari yang sama** setelah ditinjau ulang.
+
+Alasan pembatalan, singkat: actor ini melanggar Reddit User Agreement §7 dan
+PRD §13, sedangkan AGENTS.md mewajibkan patuh ToS dan melarang jalan pintas saat
+akses Reddit bermasalah. Menyuruh pihak ketiga melanggar untuk kita tetap
+pelanggaran oleh kita. `text_sources.reddit.apify.enabled` kini `false`.
+
+Bagian di bawah dipertahankan sebagai catatan teknis: ia menjelaskan apa yang
+sudah diukur (biaya, yield, jebakan skema), berguna kalau sumber teks legal
+lainnya nanti butuh perbandingan. **Jangan dijalankan tanpa keputusan tim baru
+yang tertulis di `docs/decisions.md`.**
+
+### Biaya yang sudah keluar (tidak terulang)
+
+$0.8717 dari kredit gratis $5, sisa $4.128 — 6 run pilot yang selesai plus satu
+run 25 pemain yang dihentikan di pemain ke-4. Semua berada di bawah
+`data/raw/reddit/`, tidak ada yang ditimpa.
 
 ### Menyalakan
 

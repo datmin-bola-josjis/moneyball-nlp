@@ -124,21 +124,22 @@ text_sources:
 
     # ------------------------------------------------------------ B3. Provider Apify
     # Jalur cadangan: actor pihak ketiga `automation-lab/reddit-scraper`.
-    # DIPILIH TIM pada 2026-11-12 setelah izin Data API Reddit tidak turun.
-    # Konsekuensi yang sudah diketahui dan diterima: melanggar Reddit User
-    # Agreement §7 dan PRD §13 (lihat docs/tahap-b-reddit.md §3 serta
-    # docs/decisions.md). Nonaktif secara default; OAuth adalah jalur utama.
+    #
+    # STATUS: NONAKTIF. Dinonaktifkan 2026-11-12 setelah ditinjau ulang.
+    # Actor ini melanggar Reddit User Agreement §7 ("scraping ... without
+    # Reddit's prior written consent is prohibited") dan PRD §13, sementara
+    # AGENTS.md mewajibkan patuh ToS dan melarang jalan pintas saat akses
+    # Reddit bermasalah. Jalur teks resmi: OAuth (bila disetujui) atau
+    # YouTube + artikel (PRD §12).
+    #
+    # Kode dan pengalaman pilotnya tetap disimpan sebagai catatan, bukan
+    # sebagai jalur yang dipakai. Jangan aktifkan tanpa keputusan tim yang
+    # baru dan tertulis di docs/decisions.md.
     apify:
-      enabled: true             # diaktifkan 2026-11-12 atas keputusan tim (lihat docs/decisions.md)
-      max_posts_per_player: 15  # dinaikkan dari 5: yield terukur ~13 teks/pemain pada 15 post
-      max_comments_per_post: 12 # actor menagih per komentar PER POST, bukan per pemain
-      max_cost_usd: 4.0         # pagar biaya TIDAK boleh melebihi sisa kredit Apify ($4.49 dari $5 gratis); 70 pemain butuh $10.87, jadi cap ini hanya cukup untuk ~25 pemain
-      # Pencarian Reddit hanya punya jendela WAKTU RELATIF (jam/hari/pekan/bulan/
-      # tahun/semua), tidak bisa menyasar 2025-07..2026-05 secara langsung.
-      # "year" dari Nov 2026 = Nov 2025..Nov 2026, yaitu irisan terbesar musim
-      # yang masih terjangkau; filter musim lokal kemudian memangkas sisa di luar
-      # 2026-05-31. "all" justru mengembalikan saga transfer terbaru (Jun-Okt 2026)
-      # yang seluruhnya gugur di filter musim.
+      enabled: false            # WAJIB false; lihat alasan di atas
+      max_posts_per_player: 15
+      max_comments_per_post: 12
+      max_cost_usd: 4.0         # pagar biaya; tidak boleh melebihi sisa kredit Apify
       search_time_filter: "year"
       search_sort: "top"        # post paling dibahas setahun terakhir, bukan yang terbaru
 

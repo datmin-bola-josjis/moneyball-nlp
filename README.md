@@ -65,9 +65,10 @@ python -m src.scrape.run --provider apify --estimate-cost   # cost only, no requ
 python -m src.scrape.run --provider apify --pilot 3         # marketplace actor, needs APIFY_TOKEN
 ```
 
-The Apify provider is off by default and breaches Reddit's User Agreement; the team
-opted in knowingly, and the consequences that must appear in the report are listed in
-[`docs/tahap-b-reddit.md`](docs/tahap-b-reddit.md) §3 and §"Jalur Apify".
+The Apify provider is **disabled**: it breaches Reddit's User Agreement §7 and PRD §13.
+The code is kept as a measured record of that path, not as something to run. Text comes
+from OAuth if the Data API request is approved, otherwise YouTube and articles
+(PRD §12). See [`docs/tahap-b-reddit.md`](docs/tahap-b-reddit.md) §3.
 
 Output per run:
 
