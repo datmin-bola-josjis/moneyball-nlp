@@ -282,3 +282,56 @@ def test_channel_without_handle_fails_loudly(monkeypatch: pytest.MonkeyPatch,
 
     with pytest.raises(SystemExit, match="Mystery FC"):
         youtube.channel_sources(FakeClient())
+
+
+# --------------------------------------------------------------- exclusions
+
+
+def config_with_exclusions(*rules: dict) -> dict:
+    return {"text_sources": {"youtube": {"exclude_players": list(rules)}}}
+
+
+def test_excluded_player_is_dropped_and_the_reason_is_recorded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reason = "matched Andre Silva, a different person"
+    monkeypatch.setattr(
+        youtube,
+        "load_config",
+        lambda: config_with_exclusions(
+            {"player_id": SAKA.player_id, "name": SAKA.name, "reason": reason}
+        ),
+    )
+
+    kept, dropped = youtube.apply_exclusions([SAKA, RICE])
+
+    assert kept == [RICE]
+    assert dropped == [
+        {"player_id": SAKA.player_id, "name": SAKA.name, "reason": reason}
+    ]
+
+
+def test_no_exclusion_rules_keeps_everyone(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(youtube, "load_config", lambda: {"text_sources": {"youtube": {}}})
+
+    kept, dropped = youtube.apply_exclusions([SAKA, RICE])
+
+    assert kept == [SAKA, RICE]
+    assert dropped == []
+
+
+def test_exclusion_for_an_absent_player_warns_about_a_typo(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A rule that matches nobody must be visible: a typo would exclude nothing."""
+    monkeypatch.setattr(
+        youtube,
+        "load_config",
+        lambda: config_with_exclusions({"player_id": "fotmob_typo", "reason": "x"}),
+    )
+
+    kept, dropped = youtube.apply_exclusions([SAKA])
+
+    assert kept == [SAKA]
+    assert dropped == []
+    assert "typo" in caplog.text.lower()

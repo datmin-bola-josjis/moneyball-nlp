@@ -111,6 +111,7 @@ tests/               alias matching, date filters, schema checks
 | [`docs/PRD.md`](docs/PRD.md) | Scope, data sources, stages A to F, dataset schema, definitions, metrics, risks, ethics |
 | [`docs/PLAN-1WEEK.md`](docs/PLAN-1WEEK.md) | Role split, seven-day schedule, report structure |
 | [`docs/decisions.md`](docs/decisions.md) | Every threshold change and technical decision, with the reasoning |
+| [`docs/tahap-b-youtube.md`](docs/tahap-b-youtube.md) | YouTube retrieval: channels, pipeline, measured numbers, limitations |
 | [`AGENTS.md`](AGENTS.md) | Rules for AI agents and contributors |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Setup, branch naming, commit format |
 

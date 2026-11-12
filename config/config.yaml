@@ -164,6 +164,19 @@ text_sources:
     include_transcript: true
     min_words: 8
     rate_limit_seconds: 1.0     # lantai keras, sama seperti jalur Reddit
+    # Pemain yang teks YouTube-nya teridentifikasi milik orang lain. Dikeluarkan
+    # lewat config, bukan filter tersembunyi di kode, supaya alasannya ikut
+    # tercatat di summary.json setiap run. Teks Reddit pemain ini tidak
+    # terpengaruh.
+    # Alasan lengkap: docs/tahap-b-youtube.md bagian "Keterbatasan".
+    exclude_players:
+    - player_id: fotmob_1174296
+      name: André
+      reason: >-
+        22 dari 40 komentar yang cocok (55%) ternyata tentang Andre Silva, adik
+        Diogo Jota yang meninggal, bukan Andre pemain Wolves. Alias satu kata
+        "Andre" cocok sebagai awalan nama orang lain. Terdeteksi lewat gate
+        relevansi PRD 11, bukan ditebak.
     # Handle dan ID diverifikasi 2026-11-12 lewat `channels.list?forHandle=`.
     # Wajib disimpan di sini, bukan di cache `data/raw/`, supaya anggota lain
     # bisa mereproduksi run dari clone bersih (data/raw gitignored).

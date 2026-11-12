@@ -97,6 +97,49 @@ def _season_window() -> tuple[str, str]:
     return str(league["season_start"]), str(league["season_end"])
 
 
+def apply_exclusions(players: list[Player]) -> tuple[list[Player], list[dict]]:
+    """Drop players whose YouTube matches are known to be a different person.
+
+    The exclusion lives in `config/config.yaml` and carries a written reason, so
+    it is visible in the output instead of hidden in a conditional. A rule that
+    names a player who is not in the sample is reported: a typo there would
+    otherwise exclude nobody and nobody would notice.
+
+    AGENTS.md rule 16 forbids quietly retuning after looking at the results. This
+    is the opposite: the reason is recorded, and `docs/decisions.md` carries the
+    date and the measured number behind it.
+    """
+    rules = {
+        str(rule["player_id"]): rule
+        for rule in (load_config()["text_sources"]["youtube"].get("exclude_players") or [])
+        if rule.get("player_id")
+    }
+    if not rules:
+        return list(players), []
+
+    kept: list[Player] = []
+    dropped: list[dict] = []
+    for player in players:
+        rule = rules.get(player.player_id)
+        if rule is None:
+            kept.append(player)
+            continue
+        reason = " ".join(str(rule.get("reason") or "no reason given").split())
+        dropped.append(
+            {"player_id": player.player_id, "name": player.name, "reason": reason}
+        )
+        log.warning("excluding %s from youtube: %s", player.name, reason)
+
+    unknown = sorted(set(rules) - {player.player_id for player in players})
+    if unknown:
+        log.warning(
+            "exclude_players names %d player_id(s) not in this sample: %s - check for a typo",
+            len(unknown),
+            ", ".join(unknown),
+        )
+    return kept, dropped
+
+
 def _load_channel_cache() -> dict[str, dict]:
     if not CHANNELS_CACHE.exists():
         return {}
@@ -427,6 +470,9 @@ def run(
         raise SystemExit("youtube source disabled in config/config.yaml - nothing to do")
 
     client = client or YouTubeClient()
+    players, excluded = apply_exclusions(players)
+    if not players:
+        raise SystemExit("every player was excluded for youtube - nothing to collect")
     index = AliasIndex.build(players)
     league_clubs = list(load_config()["league"].get("clubs", []))
     quota = int(cfg.get("max_texts_per_player", 40))
@@ -486,6 +532,7 @@ def run(
         "video_errors": counters.get("video_errors", 0),
         "per_player": per_player,
         "players_without_text": empty,
+        "excluded_players": excluded,
     }
     (raw_dir / "summary.json").write_text(
         json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
