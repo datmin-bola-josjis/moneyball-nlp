@@ -295,8 +295,16 @@ tebakan. Harga tier gratis: $0.003/run + $0.00115/post + $0.00075/komentar.
 | pilot 20 pemain | 300 | 3.600 | **$3.10** |
 | sampel penuh 70 | 1.050 | 12.600 | **$10.87** |
 
-**Kredit gratis Apify hanya $5 per siklus.** Pemakaian per 2026-11-12: **$0.622**,
-sisa **$4.38** (termasuk $0.117 terbuang saat satu run 25 pemain dihentikan; run itu sempat tertinggal `RUNNING` di sisi Apify dan harus di-abort manual - sekarang dilakukan otomatis saat proses lokal dihentikan). Artinya jalur ini hanya sanggup sekitar **25 pemain**, bukan 70 —
+**Kredit gratis Apify hanya $5 per siklus.** Pemakaian per 2026-11-12: **$0.627**,
+sisa **$4.373**.
+
+Rinciannya: 6 run pilot yang selesai ($0.510) + **$0.117 terbuang** saat satu run
+25 pemain dihentikan. Run itu sempat tertinggal `RUNNING` di sisi Apify lalu
+di-abort manual; sekarang `run_actor()` melakukan abort otomatis begitu proses
+lokal dihentikan. Direktori mentah run yang gagal sudah dihapus, jadi tidak ada
+sisa data setengah jadi yang bisa dikira hasil sah.
+
+Artinya jalur ini hanya sanggup sekitar **25 pemain**, bukan 70 —
 `max_cost_usd` di config disetel `4.0` dan script menolak jalan kalau estimasi
 melebihi sisa kredit (dibaca langsung dari API, bukan diasumsikan).
 
