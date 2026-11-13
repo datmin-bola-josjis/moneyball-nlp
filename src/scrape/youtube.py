@@ -338,31 +338,50 @@ def records_from_comment(
     min_words: int,
     seen_hashes: set[str],
     thread_context: bool,
+    counters: dict[str, int] | None = None,
 ) -> list[YouTubeTextRecord]:
-    """One top-level comment -> a comment record plus its sentence records."""
+    """One top-level comment -> a comment record plus its sentence records.
+
+    `counters` records why a text was dropped, one bucket per filter, so the
+    cleaning table in `reports/cleaning_youtube.md` is produced by the same code
+    that does the filtering instead of being written from memory. Passing `None`
+    keeps the function usable from tests without bookkeeping.
+    """
+
+    def drop(reason: str) -> None:
+        if counters is not None:
+            counters[f"dropped_{reason}"] = counters.get(f"dropped_{reason}", 0) + 1
+
     raw_body = str(comment.get("textDisplay") or comment.get("textOriginal") or "")
     cleaned = clean_text(raw_body)
     if word_count(cleaned) < min_words:
+        drop("too_short")
         return []
     if not is_english(cleaned):
+        drop("not_english")
         return []
     if is_bot_like("", cleaned):
+        drop("bot_like")
         return []
 
     created = _published_at(str(comment.get("publishedAt") or ""))
     if created is None:
+        drop("no_date")
         return []
     start, end = _season_window()
     if not (start <= created.date().isoformat() <= end):
+        drop("outside_season")
         return []
 
     body_hash = text_hash(cleaned)
     if body_hash in seen_hashes:
+        drop("duplicate")
         return []
     seen_hashes.add(body_hash)
 
     alias = index.find_mentions(cleaned, player.player_id)
     if not index.resolves(alias, cleaned, player.player_id, league_clubs, thread_context):
+        drop("name_not_resolved")
         return []
 
     comment_id = str(comment.get("id") or body_hash)
@@ -397,6 +416,7 @@ def records_from_comment(
         if not index.resolves(
             sentence_alias, sentence, player.player_id, league_clubs, thread_context
         ):
+            drop("sentence_not_resolved")
             continue
         records.append(
             YouTubeTextRecord(
@@ -442,8 +462,17 @@ def extract_for_player(
                     top = ((thread.get("snippet") or {}).get("topLevelComment") or {}).get("snippet")
                     if not top:
                         continue
+                    counters["comments_examined"] = counters.get("comments_examined", 0) + 1
                     added = records_from_comment(
-                        top, video, player, index, league_clubs, min_words, seen_hashes, context
+                        top,
+                        video,
+                        player,
+                        index,
+                        league_clubs,
+                        min_words,
+                        seen_hashes,
+                        context,
+                        counters,
                     )
                     records.extend(added)
                     kept_comments += sum(1 for r in added if r.unit_type == "comment")
@@ -530,6 +559,16 @@ def run(
         "cache_hits": client.cache_hits,
         "comments_disabled_videos": counters.get("comments_disabled", 0),
         "video_errors": counters.get("video_errors", 0),
+        "filters": {
+            "comments_examined": counters.get("comments_examined", 0),
+            "comments_kept": sum(1 for r in all_records if r.unit_type == "comment"),
+            "sentences_kept": sum(1 for r in all_records if r.unit_type == "sentence"),
+            "dropped": {
+                key.removeprefix("dropped_"): value
+                for key, value in sorted(counters.items())
+                if key.startswith("dropped_")
+            },
+        },
         "per_player": per_player,
         "players_without_text": empty,
         "excluded_players": excluded,

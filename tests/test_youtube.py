@@ -146,7 +146,8 @@ def make_video(title: str = "Bukayo Saka masterclass") -> VideoCandidate:
 
 def extract(text: str, *, published: str = "2026-03-01T10:00:00Z",
             thread_context: bool = True, seen: set[str] | None = None,
-            video: VideoCandidate | None = None) -> list:
+            video: VideoCandidate | None = None,
+            counters: dict[str, int] | None = None) -> list:
     index = AliasIndex.build([SAKA, RICE])
     return records_from_comment(
         {"id": "c1", "textDisplay": text, "publishedAt": published, "likeCount": 5},
@@ -157,6 +158,7 @@ def extract(text: str, *, published: str = "2026-03-01T10:00:00Z",
         min_words=8,
         seen_hashes=seen if seen is not None else set(),
         thread_context=thread_context,
+        counters=counters,
     )
 
 
@@ -335,3 +337,74 @@ def test_exclusion_for_an_absent_player_warns_about_a_typo(
     assert kept == [SAKA]
     assert dropped == []
     assert "typo" in caplog.text.lower()
+
+
+# ------------------------------------------------------------------- counters
+
+
+def test_too_short_is_counted() -> None:
+    counters: dict[str, int] = {}
+    extract("Saka good", counters=counters)
+    assert counters == {"dropped_too_short": 1}
+
+
+def test_language_filter_is_counted(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(youtube, "is_english", lambda *_: False)
+    counters: dict[str, int] = {}
+    extract("Saka was clinical today and he never stopped running.", counters=counters)
+    assert counters == {"dropped_not_english": 1}
+
+
+def test_bot_filter_is_counted(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(youtube, "is_bot_like", lambda *_: True)
+    counters: dict[str, int] = {}
+    extract("Saka was clinical today and he never stopped running.", counters=counters)
+    assert counters == {"dropped_bot_like": 1}
+
+
+def test_missing_date_is_counted() -> None:
+    counters: dict[str, int] = {}
+    extract("Saka was clinical today and he never stopped running.", published="", counters=counters)
+    assert counters == {"dropped_no_date": 1}
+
+
+def test_out_of_season_is_counted() -> None:
+    counters: dict[str, int] = {}
+    extract(
+        "Saka was clinical today and he never stopped running.",
+        published="2024-03-01T10:00:00Z",
+        counters=counters,
+    )
+    assert counters == {"dropped_outside_season": 1}
+
+
+def test_duplicate_within_one_player_is_counted() -> None:
+    seen: set[str] = set()
+    counters: dict[str, int] = {}
+    text = "Saka was clinical today and he never stopped running."
+    extract(text, seen=seen, counters=counters)
+    extract(text, seen=seen, counters=counters)
+    assert counters.get("dropped_duplicate") == 1
+
+
+def test_unresolved_name_is_counted() -> None:
+    counters: dict[str, int] = {}
+    extract("Rice was clinical today and he never stopped running.", counters=counters)
+    assert counters == {"dropped_name_not_resolved": 1}
+
+
+def test_sentence_that_loses_the_name_is_counted() -> None:
+    counters: dict[str, int] = {}
+    records = extract(
+        "Saka was clinical today. The weather was awful all afternoon.", counters=counters
+    )
+
+    # The first sentence still names Saka; only the second one is dropped.
+    assert [r.unit_type for r in records] == ["comment", "sentence"]
+    assert counters == {"dropped_sentence_not_resolved": 1}
+
+
+def test_counters_are_optional() -> None:
+    """Tests and callers that do not need the table must keep working."""
+    records = extract("Saka was clinical today and he never stopped running.")
+    assert records

@@ -101,6 +101,48 @@ Sebaran kecukupan bukti (batas PRD §9: ≥30 cukup, 10–29 terbatas, <10 tidak
 volume sebenarnya lebih tinggi. Cap ini sengaja ada supaya pemain populer tidak
 menenggelamkan sampel.
 
+## Tabel cleaning (ke mana teks yang gugur)
+
+Setiap penolakan dihitung di dalam `records_from_comment`, ditulis ke
+`summary.json`, lalu dirender oleh `src/scrape/cleaning.py` menjadi
+`reports/cleaning_youtube.md`. Angka di bawah berasal dari run
+`full-20261113-023244`; tidak ada yang ditulis dari ingatan.
+
+Satuannya **pasangan (pemain, komentar)**, bukan komentar unik. Satu komentar
+diperiksa sekali untuk setiap pemain yang namanya mungkin disebut, jadi
+"diperiksa" jauh lebih besar dari 1.054 komentar yang disimpan.
+
+| Filter | Dibuang | Porsi | Alasan |
+|---|---|---|---|
+| Terlalu pendek | 13.170 | 37,9% | kurang dari `min_words` kata |
+| Bukan bahasa Inggris | 227 | 0,7% | deteksi bahasa |
+| Bot / spam | 0 | 0,0% | penanda bot |
+| Tanpa tanggal | 0 | 0,0% | `publishedAt` kosong atau tidak valid |
+| Di luar musim | 288 | 0,8% | di luar `season_start`..`season_end` |
+| Duplikat dalam satu pemain | 25 | 0,1% | `text_clean_hash` sudah dipakai |
+| Nama tidak teratasi | 19.986 | 57,5% | aturan 17 / `AliasIndex` |
+| **Diperiksa** | **34.750** | 100% | |
+| **Lolos menjadi komentar** | **1.054** | 3,0% | |
+
+Kalimat disaring terpisah setelah komentarnya lolos: **939** kalimat gugur
+karena tidak lagi menyebut nama pemain, **1.105** lolos. Kalimat yang gugur
+tidak membatalkan komentarnya.
+
+Dua angka yang perlu dijelaskan sebelum dibaca sebagai masalah:
+
+- **`nama tidak teratasi` 57,5%** bukan kegagalan retrieval. Komentar di bawah
+  video "Saka masterclass" kebanyakan membahas pemain lain, wasit, atau taktik;
+  aturan 17 menolak setiap sebutan yang tidak bisa dipastikan. Kalau filter ini
+  dilonggarkan, yang naik bukan recall melainkan jumlah tautan salah.
+- **`terlalu pendek` 37,9%** adalah harga `min_words`: komentar satu baris
+  ("Saka 😍") tidak punya kalimat untuk dianalisis sentimennya.
+
+Jumlah yang tidak terhitung adalah **0**, artinya setiap komentar yang diperiksa
+masuk tepat satu keranjang.
+
+Tabel ini **tidak berubah** saat teks Reddit dari B masuk — ia hanya menjelaskan
+jalur YouTube.
+
 ## Kuota dan cache
 
 Kuota YouTube Data API 10.000 unit/hari, reset tengah malam waktu Pasifik. Total
@@ -307,8 +349,6 @@ Dua hal yang harus D tangani:
 - Balasan komentar.
 - Dedupe silang final: skripnya sudah ada (`make dedupe`), tapi angka final
   menunggu `texts_reddit_full.jsonl` 70 pemain dari B.
-- Tabel cleaning terdokumentasi (berapa teks gugur per filter). Kolektor belum
-  mencatat angka per filter; yang ada baru ringkasan per pemain.
 - Perbaikan `aliases.py` untuk bug awalan nama — menunggu keputusan pemilik jalur
   Reddit karena mengubah angka mereka.
 
@@ -319,6 +359,9 @@ make scrape-youtube                  # seluruh sampel, penuh
 make scrape-youtube PILOT=20         # 20 pemain tersebar menurut market value
 make review N=100 SOURCE=youtube     # tarik 100 teks untuk gate relevansi
 make review-score SOURCE=youtube     # skor lembar yang sudah dilabeli
+make cleaning                        # render tabel cleaning dari run terbaru
+make cleaning RUN=<nama-run>         # render dari run tertentu
+make dedupe                          # gabung dengan Reddit, buang duplikat silang
 ```
 
 Setara tanpa `make`:
@@ -326,6 +369,7 @@ Setara tanpa `make`:
 ```bash
 .venv/Scripts/python.exe -m src.scrape.youtube --pilot 20
 .venv/Scripts/python.exe -m src.scrape.run --sample --n-sample 100 --source youtube
+.venv/Scripts/python.exe -m src.scrape.cleaning --run full-20261113-023244
 ```
 
 Butuh `YOUTUBE_API_KEY` di `.env`. Kalau kosong, skrip berhenti dengan instruksi
