@@ -8,10 +8,10 @@ the ambiguous cases can be tested without network.
 from __future__ import annotations
 
 import re
-import unicodedata
 from dataclasses import dataclass, field
 from typing import Iterable
 
+from src.population.identity import strip_accents
 from src.scrape.players import Player, club_needles
 
 _APOSTROPHES = str.maketrans({"’": "'", "‘": "'", "`": "'"})
@@ -29,8 +29,7 @@ def normalize(text: str) -> str:
     The possessive goes because "Saka's finishing" has to match the alias
     "Saka". Internal apostrophes stay, so "N'Golo" and "O'Brien" survive.
     """
-    decomposed = unicodedata.normalize("NFKD", (text or "").translate(_APOSTROPHES))
-    stripped = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    stripped = strip_accents((text or "").translate(_APOSTROPHES))
     without_possessive = _POSSESSIVE.sub("", stripped.lower())
     spaced = re.sub(r"[^a-z0-9']+", " ", without_possessive)
     return _EDGE_APOSTROPHE.sub("", spaced).strip()

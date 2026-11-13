@@ -17,7 +17,7 @@ import logging
 import sys
 
 from src.config import ROOT, load_config
-from src.scrape import apify_reddit, arctic_shift, relevance, subreddits
+from src.scrape import apify_reddit, arctic_shift, relevance, subreddits, youtube
 from src.scrape.aliases import AliasIndex
 from src.scrape.players import DEFAULT_PLAYERS, load_players, market_values, pilot_subset
 from src.scrape.reddit import run as run_reddit
@@ -51,7 +51,11 @@ def _sample_players() -> list:
 
 def _runner(name: str):
     """Pick the retrieval path; `oauth` is the default."""
-    return {"apify": apify_reddit.run, "arctic": arctic_shift.run}.get(name, run_reddit)
+    return {
+        "apify": apify_reddit.run,
+        "arctic": arctic_shift.run,
+        "youtube": youtube.run,
+    }.get(name, run_reddit)
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Stage B: player-centric Reddit retrieval")
@@ -64,12 +68,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--n-sample", type=int, default=100, help="texts to draw for review")
     parser.add_argument(
         "--provider",
-        choices=["oauth", "apify", "arctic"],
+        choices=["oauth", "apify", "arctic", "youtube"],
         default="oauth",
         help=(
-            "reddit retrieval path: oauth (default, needs Data API approval), "
-            "arctic (third-party archive, no credentials), or apify (disabled actor)"
+            "retrieval path: oauth (default Reddit, needs Data API approval), "
+            "arctic (Reddit archive, no credentials), apify (disabled actor), "
+            "or youtube (whitelist channels)"
         ),
+    )
+    parser.add_argument(
+        "--source",
+        choices=list(relevance.SOURCES),
+        default="reddit",
+        help="which scraped texts to review or score (default: reddit, unchanged)",
     )
     parser.add_argument(
         "--estimate-cost", action="store_true", help="print the apify cost estimate and exit"
@@ -86,11 +97,14 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if invalid else 0
 
     if args.sample:
-        print(f"review sheet -> {relevance.sample_for_review(n=args.n_sample, tag=args.tag)}")
+        print(
+            f"review sheet -> "
+            f"{relevance.sample_for_review(n=args.n_sample, tag=args.tag, source=args.source)}"
+        )
         return 0
 
     if args.score:
-        path, stats = relevance.score_review()
+        path, stats = relevance.score_review(source=args.source)
         print(f"{path}: {stats['rate']:.1%} relevant on {stats['labelled']} labelled texts")
         return 0
 

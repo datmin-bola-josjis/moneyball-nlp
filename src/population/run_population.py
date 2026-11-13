@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -78,9 +79,27 @@ def main(*, lock: bool = False, allow_partial: bool = False) -> int:
     cfg = sample_config_from(config)
     min_minutes = int((config.get("population") or {}).get("min_minutes", 900))
 
-    club_aliases = (config.get("league") or {}).get("club_name_aliases") or {}
+    league_cfg = config.get("league") or {}
+    club_aliases = league_cfg.get("club_name_aliases") or {}
+    season_start_raw = league_cfg.get("season_start")
+    season_end_raw = league_cfg.get("season_end")
+    if bool(season_start_raw) != bool(season_end_raw):
+        raise ValueError(
+            "config league.season_start and league.season_end must both be set together"
+        )
     records, missing = load_population(
-        min_minutes=min_minutes, club_aliases=club_aliases
+        min_minutes=min_minutes,
+        club_aliases=club_aliases,
+        **(
+            {
+                "season_start": date.fromisoformat(str(season_start_raw)),
+                "season_end": date.fromisoformat(str(season_end_raw)),
+            }
+            if season_start_raw and season_end_raw
+            else {}
+        ),
+        league=str(league_cfg.get("name", "Premier League")),
+        season=str(league_cfg.get("season", "2025/26")),
     )
     if missing and not allow_partial:
         logger.error(
@@ -93,9 +112,10 @@ def main(*, lock: bool = False, allow_partial: bool = False) -> int:
     if missing:
         logger.warning("proceeding with %d players missing payloads", len(missing))
 
+    raw_records = [replace(record, name_aliases=list(record.name_aliases)) for record in records]
     collisions = drop_colliding_aliases(records)
     if collisions:
-        logger.warning("dropped %d ambiguous aliases", len(collisions))
+        logger.warning("dropped %d ambiguous aliases across population", len(collisions))
 
     population = to_dataframe(records)
 
@@ -107,10 +127,6 @@ def main(*, lock: bool = False, allow_partial: bool = False) -> int:
             logger.error("  - %s", problem)
         return 1
     logger.info("population gate passed: %d players, 20 clubs", len(population))
-
-    OUT_PLAYERS.parent.mkdir(parents=True, exist_ok=True)
-    population.to_parquet(OUT_PLAYERS, index=False)
-    logger.info("wrote %d players to %s", len(population), OUT_PLAYERS)
 
     priced = int(population["market_value_eur"].notna().sum())
     logger.info("market value present for %d/%d players", priced, len(population))
@@ -126,6 +142,13 @@ def main(*, lock: bool = False, allow_partial: bool = False) -> int:
     )
 
     sample = stratified_sample(population, cfg)
+    sample_ids = set(sample["player_id"])
+    sample_records = [record for record in raw_records if record.player_id in sample_ids]
+    sample_collisions = drop_colliding_aliases(sample_records)
+    if sample_collisions:
+        logger.warning("dropped %d ambiguous aliases within sample", len(sample_collisions))
+    sample_aliases = {record.player_id: record.name_aliases for record in sample_records}
+    sample["name_aliases"] = sample["player_id"].map(sample_aliases)
     print(report_census(sample))
 
     problems = verify_sample(
@@ -156,10 +179,20 @@ def main(*, lock: bool = False, allow_partial: bool = False) -> int:
     sample[review_columns].to_csv(SAMPLE_REVIEW, index=False)
     logger.info("wrote review file to %s", SAMPLE_REVIEW)
 
+    OUT_PLAYERS.parent.mkdir(parents=True, exist_ok=True)
     if not lock:
+        locked_ids: set[str] = set()
+        if SAMPLE_LOCKED.exists():
+            locked_ids = set(
+                pd.read_parquet(SAMPLE_LOCKED, columns=["player_id"])["player_id"]
+            )
+        population["in_text_sample"] = population["player_id"].isin(locked_ids)
+        population.to_parquet(OUT_PLAYERS, index=False)
+        logger.info("wrote %d players to %s", len(population), OUT_PLAYERS)
         logger.info("dry run: sample not written as locked file")
         return 0
 
+    sample["in_text_sample"] = True
     sample.to_parquet(SAMPLE_LOCKED, index=False)
     logger.info("wrote locked sample to %s", SAMPLE_LOCKED)
 
@@ -170,9 +203,7 @@ def main(*, lock: bool = False, allow_partial: bool = False) -> int:
         "price_quartile",
         "stratum",
     }
-    population["in_text_sample"] = population["player_id"].isin(
-        set(sample["player_id"])
-    )
+    population["in_text_sample"] = population["player_id"].isin(sample_ids)
     population.to_parquet(OUT_PLAYERS, index=False)
     logger.info(
         "marked %d players in_text_sample in %s",
