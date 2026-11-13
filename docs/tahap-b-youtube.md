@@ -188,6 +188,14 @@ bervolume besar mendominasi lembar (10 pemain dari 20). Gate ini mengukur
 **presisi**, bukan cakupan. Karena itu gate pilot tidak boleh dibaca sebagai
 gambaran pemerataan bukti antar pemain — untuk itu lihat tabel kecukupan di atas.
 
+**Urutan yang menyimpang dari AGENTS.md, dicatat terbuka.** Run penuh (1.054
+komentar) sudah dijalankan sebelum lembar gate ini dilabeli, padahal aturannya
+gate pilot dulu. Konsekuensinya: bila gate nanti di bawah 85%, filter harus
+diperbaiki dan run penuh diulang. Biayanya kecil dan bukan permanen — seluruh
+respons API sudah di cache, dan penyaringan terjadi setelah pengambilan, jadi run
+ulang dengan filter yang berubah memakai 0 unit kuota. Yang tidak boleh terjadi
+adalah menyatakan gate lulus tanpa label manusia.
+
 ## Keterbatasan yang wajib masuk laporan
 
 ### 1. Satu pemain dikecualikan karena teksnya milik orang lain

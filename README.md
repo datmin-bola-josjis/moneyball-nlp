@@ -82,7 +82,10 @@ Every record carries `player_id`, `source`, `unit_type` (`comment` or `sentence`
 
 A run logs the number of texts kept per player and lists players with none, so a silent empty scrape cannot pass as success. `make scrape` refuses to start until `data/processed/text_sample.parquet` exists and `text_sample.locked` is true.
 
-Reddit retrieval is the part written so far. YouTube and article retrieval are person C's stage and are not implemented; `src/scrape/` is shared, so the text helpers and the population reader are meant to be reused there rather than duplicated.
+Reddit retrieval is the part written by person B. YouTube retrieval is implemented
+by person C and documented in [`docs/tahap-b-youtube.md`](docs/tahap-b-youtube.md);
+article retrieval is not implemented. `src/scrape/` is shared, so the text helpers
+and the population reader are reused there rather than duplicated.
 
 ## Layout
 
