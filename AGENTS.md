@@ -24,11 +24,13 @@ Yang sudah jalan:
 |---|---|
 | Populasi + sampel terkunci (A) | 340 pemain, 20 klub; `data/processed/text_sample.parquet` 70 pemain |
 | Metrik numerik + z-score rating | 340 baris, 288 pemain punya z-score |
-| Test suite | `make test` → 235 passed |
+| Test suite | `make test` → 306 passed |
 | Validasi config | `make config` → 12 sections, 20 clubs, source=fotmob |
-| Reddit retrieval (3 provider) | kode + test ada; pilot 20 pemain pernah jalan, gate relevansi belum lolos |
+| Reddit retrieval (3 provider) | kode + test ada; full run 70 pemain selesai via Arctic Shift |
+| YouTube retrieval (komentar) | `make scrape-youtube` + `make cleaning` ada; transkrip & gate manusia belum |
+| Cross-source dedupe (Tahap C) | `make dedupe` (`src/link/dedupe.py`) ada; `src/link/resolve.py` belum |
 
-Yang belum ada: `src/link/`, `src/nlp/`, `src/viz/` masih paket kosong; `src/score/` baru separuh numerik. Tidak ada modul YouTube maupun artikel. `make pipeline` berhenti di tahap kosong pertama. **Belum ada satu pun data teks tersimpan** — `data/raw/reddit/` tidak ada.
+Yang belum ada: `src/link/resolve.py`, `src/nlp/`, `src/viz/` masih belum ada; `src/score/` baru separuh numerik. Tidak ada modul artikel maupun transkrip YouTube. `make pipeline` berhenti di `link`.
 
 Rincian status per area ada di [`README.md`](README.md) bagian Development Status.
 
@@ -45,9 +47,10 @@ Rincian status per area ada di [`README.md`](README.md) bagian Development Statu
 | `src/population/` | Tahap A: fetch FotMob, bangun populasi, sampling berstrata |
 | `src/scrape/` | Tahap B: klien HTTP, retrieval Reddit, alias, review relevansi |
 | `src/score/` | Metrik numerik dan z-score per posisi |
-| `src/link/`, `src/nlp/`, `src/viz/` | Tahap C, D, F — **masih kosong**, hanya `__init__.py` |
+| `src/link/` | Tahap C: `dedupe.py` (Reddit×YouTube) sudah ada; `resolve.py` belum ada |
+| `src/nlp/`, `src/viz/` | Tahap D, F — **masih kosong**, hanya `__init__.py` |
 | `data/processed/text_sample.parquet` | Sampel terkunci — **satu-satunya data yang masuk git** |
-| `tests/` | 235 test, mayoritas di `tests/test_scrape.py` |
+| `tests/` | 306 test (`test_scrape.py`, `test_youtube*.py`, `test_dedupe.py`, dll.) |
 
 Jangan membuat file config kedua (mis. `config/sampling.yaml`). Parameter sampling masuk ke `config/config.yaml` di bawah kunci `text_sample`.
 

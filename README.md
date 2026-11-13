@@ -49,8 +49,8 @@ A player is flagged undervalued when the text quality score is at or above the 7
 |---|---|---|---|
 | **A.** Population | Roster for all 20 clubs, minutes played, internal `player_id`, transliterated name aliases. Locks the text sample of 70 players. | `src/population/` | Runs end to end |
 | **A/E.** Numeric metrics | Per-90 stats, average rating, positional rating z-score. | `src/score/metrics.py`, `run_metrics.py` | Runs end to end |
-| **B.** Retrieval | Player-centric Reddit search, bounded by the season window and the subreddit whitelist. | `src/scrape/` | Reddit works through three providers; YouTube and articles are config only |
-| **C.** Linking | Sentence-level entity linking with club context, plus date, language and dedupe filters. | `src/link/` | Empty package |
+| **B.** Retrieval | Player-centric Reddit and YouTube comment search, bounded by the season window and source whitelists. | `src/scrape/` | Reddit works through three providers; YouTube comments implemented (`make scrape-youtube`), transcripts & articles pending |
+| **C.** Linking | Sentence-level entity linking with club context, plus date, language and cross-source dedupe. | `src/link/` | `dedupe.py` implemented; `resolve.py` not started |
 | **D.** NLP | VADER sentiment per sentence, aspect assignment by keyword dictionary, buzz volume per player. | `src/nlp/` | Empty package |
 | **E.** Scoring | Text Quality Score, evidence labels, candidate and overhyped flags. | `src/score/` | Only the numeric half exists |
 | **F.** Output | Candidate table, scatter plot, aspect heatmap by position. | `src/viz/` | Empty package |
@@ -68,7 +68,7 @@ A player is flagged undervalued when the text quality score is at or above the 7
 | Python | 3.10 or newer (verified on 3.14.8) | Everything |
 | `make` | any | Pipeline targets |
 | Reddit Data API credentials | — | Only the `oauth` provider. Arctic Shift needs none |
-| YouTube Data API key | — | Only Stage B YouTube, which is not written |
+| YouTube Data API key | — | Only Stage B YouTube (`make scrape-youtube`) |
 
 ### Setup
 
@@ -87,7 +87,7 @@ make check              # config validation plus the test suite
 
 On a machine where the root filesystem is read-only, `pip install` into the user site-packages fails. Keep the virtualenv inside the repository, as above; the `Makefile` picks up `.venv/bin/python` automatically.
 
-At the time of writing this README, `make check` reports **235 passed** and `make config` reports `config ok: 12 sections, 20 clubs, source=fotmob`.
+At the time of writing this README, `make check` reports **306 passed** and `make config` reports `config ok: 12 sections, 20 clubs, source=fotmob`.
 
 ---
 
@@ -155,7 +155,7 @@ Every record carries `player_id`, `source`, `unit_type` (`comment` or `sentence`
 
 A run logs the number of texts kept per player and lists players with none, so a silent empty scrape cannot pass as success. A full run refuses to start until `data/processed/text_sample.parquet` exists and `text_sample.locked` is true. A `--pilot` run reads the sample but skips that lock check.
 
-YouTube and article retrieval are person C's stage and are not implemented. `config.yaml` carries their whitelists, so the shapes are ready; there is no module behind them yet.
+YouTube comment retrieval is implemented by person C (`make scrape-youtube`, `make cleaning`, and cross-source dedupe via `make dedupe`); see [`docs/tahap-b-youtube.md`](docs/tahap-b-youtube.md). Video transcripts (`include_transcript`) and article retrieval are not implemented yet. `src/scrape/` is shared, so the text helpers, alias index, and population reader are reused across both sources.
 
 ---
 
@@ -186,6 +186,7 @@ tests/               alias matching, date filters, schema and scraping behaviour
 | [`docs/PLAN-1WEEK.md`](docs/PLAN-1WEEK.md) | Role split, seven-day schedule, report structure |
 | [`docs/decisions.md`](docs/decisions.md) | Every threshold change and technical decision, with the reasoning |
 | [`docs/tahap-b-reddit.md`](docs/tahap-b-reddit.md) | Reddit access record: what was tried, what was rejected, and why |
+| [`docs/tahap-b-youtube.md`](docs/tahap-b-youtube.md) | YouTube retrieval: channels, pipeline, measured numbers, limitations |
 | [`AGENTS.md`](AGENTS.md) | Rules for AI agents and contributors |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Setup, branch naming, commit format |
 
@@ -246,14 +247,14 @@ The text sample covers 70 players rather than the whole league, so findings draw
 | Population and locking (Stage A) | **Implemented** | `make population`, `make lock-sample`; 340 players, 20 clubs, 70-player locked sample |
 | Numeric metrics and rating z-scores | **Implemented** | `make metrics`; 340 rows, 288 ratings z-scored |
 | Config validation | **Implemented** | `make config`; 12 sections, 20 clubs, source=fotmob |
-| Test suite | **Implemented** | `make test`; 235 passed |
+| Test suite | **Implemented** | `make test`; 306 passed |
 | Reddit retrieval (three providers) | **Implemented**, no full run yet | Code, tests and a 20-player pilot are written; the relevance gate has not been passed |
 | Subreddit name verification | **Partial** | `make scrape-verify` needs OAuth credentials that do not exist yet |
 | Relevance review tooling | **Partial** | `make review` and `make review-score` exist; no labels have been collected |
 | Arctic Shift volume measurement | **Partial** | `measure_volume.py` plus 11 tests; a probe, not wired into any `make` target |
-| YouTube retrieval | **Not started** | Config only, no module |
+| YouTube retrieval | **Partial** | `make scrape-youtube` and `make cleaning` implemented; transcripts and human relevance gate pending |
 | Article retrieval | **Not started** | Config only, disabled |
-| Entity linking (Stage C) | **Not started** | `src/link/` is an empty package |
+| Entity linking (Stage C) | **Partial** | `make dedupe` (`src/link/dedupe.py`) implemented; `src/link/resolve.py` not started |
 | Sentiment and aspects (Stage D) | **Not started** | `src/nlp/` is an empty package |
 | Text quality score and flags (Stage E) | **Not started** | Only the numeric half of `src/score/` exists |
 | Figures and candidate table (Stage F) | **Not started** | `src/viz/` is an empty package; `reports/figures/` is empty |
