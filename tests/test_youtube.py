@@ -78,13 +78,13 @@ def comment_page(text: str, published: str = "2026-03-01T10:00:00Z", comment_id:
             {
                 "snippet": {
                     "topLevelComment": {
+                        "id": comment_id,
                         "snippet": {
-                            "id": comment_id,
                             "textDisplay": text,
                             "publishedAt": published,
                             "likeCount": likes,
                             "authorDisplayName": author,
-                        }
+                        },
                     }
                 }
             }
@@ -222,12 +222,12 @@ def test_quota_counts_comments_not_sentences() -> None:
             {
                 "snippet": {
                     "topLevelComment": {
+                        "id": f"c{i}",
                         "snippet": {
-                            "id": f"c{i}",
                             "textDisplay": f"Saka was clinical in phase {i} and never stopped running",
                             "publishedAt": "2026-03-01T10:00:00Z",
                             "likeCount": 1,
-                        }
+                        },
                     }
                 }
             }
@@ -241,6 +241,21 @@ def test_quota_counts_comments_not_sentences() -> None:
     comments = [r for r in records if r.unit_type == "comment"]
     assert len(comments) == 2, "the quota is in comments, so two comments are kept"
     assert len(records) == 4, "their sentences come along without spending the quota"
+
+
+def test_extract_reads_comment_id_from_top_level_comment() -> None:
+    """In YouTube Data API v3, id lives on topLevelComment, not inside .snippet."""
+    index = AliasIndex.build([SAKA])
+    page = comment_page(
+        "Saka was clinical today and never stopped running.",
+        comment_id="UgwRealId123",
+    )
+    client = FakeClient(comment_pages={"v1": [page]})
+
+    records = extract_for_player(client, SAKA, [make_video()], index, LEAGUE_CLUBS, 10, 8)
+
+    assert records[0].text_id == "yt_UgwRealId123_fotmob_1"
+    assert records[0].url == "https://www.youtube.com/watch?v=v1&lc=UgwRealId123"
 
 
 # ------------------------------------------------------------------------ run

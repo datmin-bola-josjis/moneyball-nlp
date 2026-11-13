@@ -459,9 +459,12 @@ def extract_for_player(
                 for thread in page.get("items") or []:
                     if kept_comments >= quota:
                         break
-                    top = ((thread.get("snippet") or {}).get("topLevelComment") or {}).get("snippet")
+                    top_level = (thread.get("snippet") or {}).get("topLevelComment") or {}
+                    top = top_level.get("snippet")
                     if not top:
                         continue
+                    if "id" not in top and top_level.get("id"):
+                        top = {**top, "id": top_level["id"]}
                     counters["comments_examined"] = counters.get("comments_examined", 0) + 1
                     added = records_from_comment(
                         top,
