@@ -94,6 +94,15 @@ def test_particle_surname_is_not_split_into_bare_word() -> None:
     assert "Dijk" not in aliases
 
 
+def test_compound_surname_without_particle_keeps_two_word_form() -> None:
+    """Three-word names like 'Bruun Larsen' and 'Smith Rowe' need the compound surname."""
+    assert "Bruun Larsen" in generate_aliases("Jacob Bruun Larsen")
+    assert "Strand Larsen" in generate_aliases("Jørgen Strand Larsen")
+    assert "Smith Rowe" in generate_aliases("Emile Smith Rowe")
+    # Multi-particle names must not emit a clipped suffix like "de Ven".
+    assert "de Ven" not in generate_aliases("Micky van de Ven")
+
+
 def test_short_form_alias_present() -> None:
     """Threads write "Bruno G."; without this the scraper misses the text."""
     aliases = generate_aliases("Bruno Guimarães")

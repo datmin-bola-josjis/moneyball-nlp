@@ -111,6 +111,27 @@ def test_sampling_is_deterministic_for_same_seed() -> None:
     assert list(first["player_id"]) == list(second["player_id"])
 
 
+def test_sampling_is_deterministic_across_processes() -> None:
+    """Python randomises str hash() per process; sampling must not depend on it."""
+    import os
+    import subprocess
+    import sys
+
+    script = (
+        "from tests.test_sampling import make_population; "
+        "from src.population.sampling import SampleConfig, stratified_sample; "
+        "s = stratified_sample(make_population(), SampleConfig(target_players=70, random_seed=42)); "
+        "print(','.join(s['player_id'].tolist()))"
+    )
+    outputs = []
+    for hash_seed in ("1", "2"):
+        env = {**os.environ, "PYTHONHASHSEED": hash_seed}
+        out = subprocess.check_output([sys.executable, "-c", script], env=env, text=True)
+        outputs.append(out.strip())
+
+    assert outputs[0] == outputs[1]
+
+
 def test_different_seed_gives_different_sample() -> None:
     population = make_population()
 

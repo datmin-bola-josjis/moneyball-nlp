@@ -146,6 +146,10 @@ def build_record(
     *,
     min_minutes: int = 900,
     team_names: dict[int, str] | None = None,
+    season_start: date = SEASON_START,
+    season_end: date = SEASON_END,
+    league: str = "Premier League",
+    season: str = "2025/26",
 ) -> PlayerRecord | None:
     """Turn a minutes row plus its payload into a record, or None to skip."""
     minutes_value = (minutes_row.get("statValue") or {}).get("value")
@@ -157,7 +161,9 @@ def build_record(
     if not name:
         return None
 
-    value, value_date = market_value_in_season(payload)
+    value, value_date = market_value_in_season(
+        payload, season_start=season_start, season_end=season_end
+    )
 
     # Club comes from the season row, never from playerData.primaryTeam.
     team_id = minutes_row.get("teamId")
@@ -175,6 +181,8 @@ def build_record(
         position=to_position_label(minutes_row["position"]),
         position_group=to_position_group(minutes_row["position"]),
         club=club,
+        league=league,
+        season=season,
         nationality=_information_field(payload, "Country"),
         birth_date=str(birth.get("utcTime") or "")[:10],
         minutes=int(minutes_value),
@@ -223,6 +231,10 @@ def load_population(
     players_dir: Path = RAW_PLAYERS,
     min_minutes: int = 900,
     club_aliases: dict[str, str] | None = None,
+    season_start: date = SEASON_START,
+    season_end: date = SEASON_END,
+    league: str = "Premier League",
+    season: str = "2025/26",
 ) -> tuple[list[PlayerRecord], list[int]]:
     """Load every eligible player. Returns (records, ids_without_payload)."""
     payload = json.loads(minutes_file.read_text(encoding="utf-8"))
@@ -248,7 +260,14 @@ def load_population(
             continue
 
         record = build_record(
-            row, player_payload, min_minutes=min_minutes, team_names=team_names
+            row,
+            player_payload,
+            min_minutes=min_minutes,
+            team_names=team_names,
+            season_start=season_start,
+            season_end=season_end,
+            league=league,
+            season=season,
         )
         if record is not None:
             records.append(record)
