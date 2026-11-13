@@ -13,7 +13,7 @@ PYTHON ?= $(shell \
   else echo python; fi)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup venv check config sample metrics fetch-players lock-sample population scrape scrape-verify scrape-pilot scrape-arctic scrape-youtube review review-score link nlp score viz pipeline test clean
+.PHONY: help setup venv check config sample metrics fetch-players lock-sample population scrape scrape-verify scrape-pilot scrape-arctic scrape-youtube review review-score link dedupe nlp score viz pipeline test clean
 
 # pytest is preferred, but the suite is plain unittest, so a machine where
 # `make setup` has not run yet can still verify the code.
@@ -67,13 +67,16 @@ scrape-youtube: ## Stage B - YouTube comments from the whitelist channels
 	$(PYTHON) -m src.scrape.youtube $(if $(PILOT),--pilot $(PILOT),)
 
 review: ## Stage B Day 2 - draw 100 scraped texts for manual relevance labels
-	$(PYTHON) -m src.scrape.run --sample $(if $(N),--n-sample $(N),) $(if $(SOURCE),--source $(SOURCE),)
+	$(PYTHON) -m src.scrape.run --sample $(if $(N),--n-sample $(N),) $(if $(SOURCE),--source $(SOURCE),) $(if $(TAG),--tag $(TAG),)
 
 review-score: ## Stage B - score the filled review sheet into reports/retrieval_relevance.md
 	$(PYTHON) -m src.scrape.run --score $(if $(SOURCE),--source $(SOURCE),)
 
 link: ## Stage C - entity linking and text filtering
 	$(PYTHON) -m src.link.resolve
+
+dedupe: ## Stage C - drop texts that appear in both Reddit and YouTube
+	$(PYTHON) -m src.link.dedupe $(if $(REDDIT_TAG),--reddit-tag $(REDDIT_TAG),) $(if $(YOUTUBE_TAG),--youtube-tag $(YOUTUBE_TAG),)
 
 nlp: ## Stage D - sentiment and aspect extraction
 	$(PYTHON) -m src.nlp.analyze

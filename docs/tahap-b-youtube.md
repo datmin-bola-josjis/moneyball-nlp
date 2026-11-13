@@ -119,25 +119,32 @@ Ini uji mutu retrieval, bukan anotasi dataset. Tujuannya memastikan teks yang
 masuk memang membicarakan pemain yang benar.
 
 ```bash
-# 1. tarik 100 komentar acak (seed tetap dari config)
-make review N=100 SOURCE=youtube
+# 1. tarik 100 komentar acak dari run pilot Hari 2 (seed tetap dari config)
+make review N=100 SOURCE=youtube TAG=pilot20
 
 # 2. isi kolom `relevant` dengan y/n di Excel, lalu
 make review-score SOURCE=youtube
 ```
 
+`TAG` penting: tanpa itu skrip mengambil file terbaru, yang setelah scraping penuh
+bukan lagi data pilot. Gate Hari 2 diukur pada pilot sesuai
+[`PLAN-1WEEK.md`](PLAN-1WEEK.md) §3, supaya filter diperbaiki **sebelum** scraping
+penuh bila hasilnya di bawah target.
+
 Hasilnya `reports/retrieval_relevance_youtube.md`, terpisah dari laporan Reddit.
 Jalur Reddit tidak berubah sama sekali: nama sheet, nama laporan, dan angkanya
 tetap seperti sebelumnya.
 
-**Status: sheet sudah ditarik (`data/interim/review_relevance_youtube.csv`, 100
-baris, 33 pemain berbeda), belum dilabeli.** Pelabelan harus dilakukan manusia —
-angka gate yang diisi sendiri oleh pembuat kode tidak sah. Lembar ini tidak boleh
-ditarik ulang setelah ada label; skrip menolak dan meminta lembar lama dipindahkan.
+**Status: sheet sudah ditarik dari `texts_youtube_pilot20.jsonl` (231 komentar,
+20 pemain), 100 baris, 10 pemain berbeda, belum dilabeli.** Pelabelan harus
+dilakukan manusia — angka gate yang diisi sendiri oleh pembuat kode tidak sah.
+Lembar ini tidak boleh ditarik ulang setelah ada label; skrip menolak dan meminta
+lembar lama dipindahkan.
 
 Satu catatan metodologis: sampel acak seragam atas komentar membuat pemain
-bervolume besar mendominasi lembar (33 pemain dari 69). Gate ini mengukur
-**presisi**, bukan cakupan.
+bervolume besar mendominasi lembar (10 pemain dari 20). Gate ini mengukur
+**presisi**, bukan cakupan. Karena itu gate pilot tidak boleh dibaca sebagai
+gambaran pemerataan bukti antar pemain — untuk itu lihat tabel kecukupan di atas.
 
 ## Keterbatasan yang wajib masuk laporan
 
@@ -231,6 +238,40 @@ melaporkan cakupan transkrip dari modul ini.
 Sesuai aturan bahasa: di Premier League, pemain yang dibicarakan bukan pemain tak
 dikenal. Ini harus tertulis di bagian keterbatasan laporan.
 
+## Dedupe silang dengan Reddit (Tahap C)
+
+Skrip: `src/link/dedupe.py`. Laporan: `reports/dedupe.md`. Perintah:
+
+```bash
+make dedupe                         # default: tag full untuk kedua sumber
+make dedupe REDDIT_TAG=partial26    # uji coba pada data yang sudah ada
+```
+
+Keluaran: `data/processed/texts_deduped.parquet` (17 kolom; `channel` dan
+`video_id` kosong untuk baris Reddit). File masukan hanya dibaca, tidak ditimpa.
+
+Cakupannya sengaja sempit, dan alasannya angka yang diukur pada file nyata:
+
+| Aturan | Alasan |
+|---|---|
+| Kunci `(player_id, text_clean_hash)`, bukan hash saja | 53 komentar di file Reddit pilot dipakai **lebih dari satu pemain**; menyatukan hash akan memutus tautan entitas yang benar |
+| Komentar dibandingkan dengan komentar, kalimat dengan kalimat | 281 hash di file Reddit dan 556 di YouTube dipakai komentar **dan** kalimatnya sendiri; dedupe naif akan menghapus unit yang dipakai analisis sentimen |
+| Hanya antar sumber | duplikat di dalam satu sumber sudah dibuang scraper, dan tidak diulang di sini |
+
+Bila duplikat ditemukan, baris Reddit dipertahankan dan salinan YouTube dibuang —
+teksnya identik, jadi pilihan ini tidak mengubah sentimen.
+
+**Hasil uji coba** (`texts_reddit_partial26.jsonl` × `texts_youtube_full.jsonl`,
+24 pemain Reddit dan 69 pemain YouTube): **0 duplikat** dari 1.163 komentar
+Reddit dan 1.054 komentar YouTube. Nol adalah temuan, bukan kegagalan: komentar
+di dua platform hampir tidak pernah identik kata per kata. Nilai dedupe ini ada
+pada buktinya, bukan pada jumlah yang dibuang.
+
+**Status: belum final.** Angka di atas berlaku untuk data pilot. Dedupe final
+menunggu `data/interim/texts_reddit_full.jsonl` 70 pemain dari B, lalu
+`make dedupe` dijalankan ulang — perintah dan keluarannya sama, hanya angkanya
+yang berubah.
+
 ## Serah terima ke D
 
 `data/` gitignored, jadi file diserahkan langsung, bukan lewat git:
@@ -253,8 +294,10 @@ Bentuk record sama dengan Reddit karena `YouTubeTextRecord` mewarisi `TextRecord
 Dua hal yang harus D tangani:
 
 1. **Satu komentar bisa muncul untuk dua pemain.** Contoh nyata: satu komentar
-   menyebut Gakpo *dan* Kerkez → dua baris dengan `text_id` sama. Saat agregasi,
-   dedupe lewat `text_clean_hash`, bukan `text_id`.
+   menyebut Gakpo *dan* Kerkez → dua baris dengan `text_id` **berbeda** (player_id
+   ada di dalam id) tetapi `text_clean_hash` sama. Saat agregasi per pemain,
+   dedupe di dalam satu pemain saja. Dedupe global atas hash akan membuang salah
+   satu baris dan membuat komentar itu tidak dihitung untuk pemain kedua.
 2. **Pemain dengan <10 komentar jangan dipaksa dinilai** (aturan 8). Daftar 19
    pemain tanpa teks ada di atas dan di `summary.json`.
 
@@ -262,7 +305,10 @@ Dua hal yang harus D tangani:
 
 - Transkrip video (`include_transcript`).
 - Balasan komentar.
-- Dedupe silang dengan Reddit (hash sudah sama, penyaringan gabungan belum).
+- Dedupe silang final: skripnya sudah ada (`make dedupe`), tapi angka final
+  menunggu `texts_reddit_full.jsonl` 70 pemain dari B.
+- Tabel cleaning terdokumentasi (berapa teks gugur per filter). Kolektor belum
+  mencatat angka per filter; yang ada baru ringkasan per pemain.
 - Perbaikan `aliases.py` untuk bug awalan nama — menunggu keputusan pemilik jalur
   Reddit karena mengubah angka mereka.
 
