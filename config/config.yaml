@@ -332,4 +332,10 @@ output:
   table_n: 20
   figures_dir: reports/figures
   report_file: reports/laporan.md
-  dashboard: false
+  dashboard: true
+  numeric_cap:
+    tier1_max_ratio: 0.20
+    tier2_max_ratio: 0.35
+    tier2_max_numeric_cols: 6
+    treat_id_as_string: true
+    treat_bool_as_non_numeric: true
