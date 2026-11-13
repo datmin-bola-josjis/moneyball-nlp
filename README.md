@@ -1,31 +1,76 @@
+<div align="center">
+
 # moneyball-nlp
 
-Identifying undervalued Premier League players from public discussion, then checking that reading against performance data.
+### Finding undervalued Premier League players from public discussion, then checking that reading against performance data
 
-Data Mining course project, Semester 5. Four people, one week. The prototype covers the Premier League 2025/26 season.
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![pandas](https://img.shields.io/badge/pandas-2.2%2B-150458?logo=pandas&logoColor=white)](https://pandas.pydata.org/)
+[![Status](https://img.shields.io/badge/status-course%20prototype-orange)]()
+[![Season](https://img.shields.io/badge/season-2025%2F26-38003c?logo=premierleague&logoColor=white)]()
 
-**Status:** documentation and repository scaffold are in place. Stage B (Reddit retrieval) is written; stages A and C to F are not. Nothing has been scraped yet — stage B needs the Reddit credentials in `.env` and the locked sample list from stage A.
+</div>
 
-## Research question
+> A note on scope before you read further: this is a one-week Data Mining course prototype (Semester 5, four people), not a production system. Stage A runs end to end and Stage B (Reddit retrieval) is written; the NLP, scoring and output stages are not. Every section below separates what runs today from what is planned. See [Development Status](#development-status) for the breakdown, with the exact command behind each claim.
 
-Can quality signals taken from text, as aspect-level sentiment, identify low-cost players whose performance holds up in the numbers?
+---
 
-Text drives the analysis. Market value supplies the price, and performance data supplies the check. The player population comes from structured roster data, because a pool built out of text would leave out the players nobody discusses.
+## Table of Contents
 
-## Stages
+1. [What It Does](#what-it-does)
+2. [Pipeline Stages](#pipeline-stages)
+3. [Quick Start](#quick-start)
+4. [Stage A in Practice](#stage-a-in-practice)
+5. [Stage B in Practice](#stage-b-in-practice)
+6. [Repository Navigation](#repository-navigation)
+7. [Tech Stack](#tech-stack)
+8. [Evaluation Targets](#evaluation-targets)
+9. [Data Handling](#data-handling)
+10. [Known Limitations](#known-limitations)
+11. [Development Status](#development-status)
+12. [Open Decisions](#open-decisions)
+13. [Contributing](#contributing)
 
-| Stage | What it does | Module |
+---
+
+## What It Does
+
+**Research question:** can quality signals taken from text, as aspect-level sentiment, identify low-cost players whose performance holds up in the numbers?
+
+Text drives the analysis. Market value supplies the price, and performance data supplies the check. The player population comes from structured roster data rather than from text, so that players nobody discusses are not silently excluded.
+
+A player is flagged undervalued when the text quality score is at or above the 75th percentile for their position, market value at or below the 40th percentile, and their rating above the positional median. Those thresholds, the season, the source whitelist and the per-source quotas all live in [`config/config.yaml`](config/config.yaml). Nothing league-specific is hardcoded in the scrapers.
+
+---
+
+## Pipeline Stages
+
+| Stage | What it does | Module | Code today |
+|---|---|---|---|
+| **A.** Population | Roster for all 20 clubs, minutes played, internal `player_id`, transliterated name aliases. Locks the text sample of 70 players. | `src/population/` | Runs end to end |
+| **A/E.** Numeric metrics | Per-90 stats, average rating, positional rating z-score. | `src/score/metrics.py`, `run_metrics.py` | Runs end to end |
+| **B.** Retrieval | Player-centric Reddit search, bounded by the season window and the subreddit whitelist. | `src/scrape/` | Reddit works through three providers; YouTube and articles are config only |
+| **C.** Linking | Sentence-level entity linking with club context, plus date, language and dedupe filters. | `src/link/` | Empty package |
+| **D.** NLP | VADER sentiment per sentence, aspect assignment by keyword dictionary, buzz volume per player. | `src/nlp/` | Empty package |
+| **E.** Scoring | Text Quality Score, evidence labels, candidate and overhyped flags. | `src/score/` | Only the numeric half exists |
+| **F.** Output | Candidate table, scatter plot, aspect heatmap by position. | `src/viz/` | Empty package |
+
+`make pipeline` chains all six and does not finish yet: it stops at the first empty stage. Per-stage targets exist so a failure is cheap to isolate.
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+| Tool | Version | Required for |
 |---|---|---|
-| A. Population | Roster for all 20 clubs, minutes played, internal `player_id`, name aliases. Locks the text sample of roughly 70 players. | `src/population/` |
-| B. Retrieval | Player-centric search on Reddit and YouTube, bounded by season dates and the whitelist in config. Reddit is written; YouTube is pending. | `src/scrape/` |
-| C. Linking | Sentence-level entity linking with club context, plus date, language and deduplication filters. | `src/link/` |
-| D. NLP | VADER sentiment per sentence, aspect assignment by keyword dictionary, buzz volume per player. | `src/nlp/` |
-| E. Scoring | Text Quality Score, evidence labels, numeric validation, candidate and overhyped flags. | `src/score/` |
-| F. Output | Candidate table, scatter plot, aspect heatmap by position. | `src/viz/` |
+| Python | 3.10 or newer (verified on 3.14.8) | Everything |
+| `make` | any | Pipeline targets |
+| Reddit Data API credentials | — | Only the `oauth` provider. Arctic Shift needs none |
+| YouTube Data API key | — | Only Stage B YouTube, which is not written |
 
-A player is flagged undervalued when the text quality score is at or above the 75th percentile for their position, market value at or below the 40th percentile, and their rating above the positional median. Those numbers live in [`config/config.yaml`](config/config.yaml) along with the season, the source whitelist and the quotas. Nothing league-specific is hardcoded in the scrapers.
-
-## Setup
+### Setup
 
 ```bash
 git clone https://github.com/datmin-bola-josjis/moneyball-nlp.git
@@ -35,75 +80,104 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-cp .env.example .env    # Reddit and YouTube credentials
+cp .env.example .env    # only needed for the OAuth and Apify paths
 make config             # validates config/config.yaml
+make check              # config validation plus the test suite
 ```
 
-Stage B needs credentials that are not in the repository.
+On a machine where the root filesystem is read-only, `pip install` into the user site-packages fails. Keep the virtualenv inside the repository, as above; the `Makefile` picks up `.venv/bin/python` automatically.
 
-- **Reddit:** access is requested, not self-served. Since November 2025 `prefs/apps` only redirects to the Responsible Builder Policy, so the client ID and secret arrive only after the manual request at <https://support.reddithelp.com/hc/en-us/requests/new?ticket_form_id=14868593862164> is approved. [`docs/tahap-b-reddit.md`](docs/tahap-b-reddit.md) has the answers to paste and the fallback plan. Unauthenticated requests are rejected, so both values are required to verify subreddit names and to scrape.
-- **YouTube:** enable YouTube Data API v3 in Google Cloud Console, then create an API key.
+At the time of writing this README, `make check` reports **235 passed** and `make config` reports `config ok: 12 sections, 20 clubs, source=fotmob`.
 
-`.env` is in `.gitignore` and never committed. Without these credentials stage B cannot run, and stages C to F have no input.
+---
 
-## Stage B in practice
+## Stage A in Practice
+
+Stage A is finished and its output is committed. Run it in this order:
 
 ```bash
-make scrape-verify     # Day 1 gate: every configured subreddit name really exists
-make scrape-pilot      # 20 players spread across the market-value range
-make review            # draw 100 scraped comments into data/interim/review_relevance.csv
-# label y/n by hand, then:
-make review-score      # writes reports/retrieval_relevance.md, must clear 85%
-make scrape            # full run over the locked sample
+make fetch-players   # 340 FotMob payloads, cached per player, resumable
+make population      # rebuilds players.parquet, prints the sample census (dry run)
+make lock-sample     # writes text_sample.parquet and sets text_sample.locked: true
+make metrics         # metrics_numeric.parquet with per-position rating z-scores
 ```
 
-Reddit can be reached two ways. OAuth is the default and the only sanctioned one:
+Already on disk and verified:
+
+| Artefact | Content | In git |
+|---|---|---|
+| `data/processed/text_sample.parquet` | 70 players, 17 columns, the locked sample | Yes |
+| `data/processed/players.parquet` | 340 players, 20 clubs | No |
+| `data/processed/metrics_numeric.parquet` | 340 rows, 28 columns, 288 with a rating z-score | No |
+| `data/raw/fotmob/players/` | 340 per-player payloads | No |
+
+The sample is stratified by position group crossed with market-value quartile, with the seed from config. Its shape: GK 18, DEF 18, MID 17, FWD 17, and every one of the 16 cells holds 4 or 5 players.
+
+Market value and rating both come from FotMob. Transfermarkt returns HTTP 405 on every path, including the homepage, and `soccerdata` has no Transfermarkt module, so that route was abandoned; the reasoning is recorded in [`docs/decisions.md`](docs/decisions.md).
+
+> **Note on `make population`.** Dry-run `make population` validates the sample and preserves `price_quartile`, `stratum`, and `in_text_sample` from any existing locked sample file without touching `data/processed/text_sample.parquet`.
+
+---
+
+## Stage B in Practice
+
+Reddit can be reached three ways. Arctic Shift is the one that runs today, because it needs no credentials:
 
 ```bash
-python -m src.scrape.run --provider oauth        # default, needs REDDIT_CLIENT_ID/SECRET
-python -m src.scrape.run --provider apify --estimate-cost   # cost only, no request sent
-python -m src.scrape.run --provider apify --pilot 3         # marketplace actor, needs APIFY_TOKEN
+make scrape-arctic PILOT=20   # 20 players spread across the market-value range
+make review                   # draws 100 texts into data/interim/review_relevance.csv
+# label each row y/n by hand, then:
+make review-score             # writes reports/retrieval_relevance.md, must clear 85%
+make scrape-arctic            # full run over the locked sample
 ```
 
-The Apify provider is **disabled**: it breaches Reddit's User Agreement §7 and PRD §13.
-The code is kept as a measured record of that path, not as something to run. Text comes
-from OAuth if the Data API request is approved, otherwise YouTube and articles
-(PRD §12). See [`docs/tahap-b-reddit.md`](docs/tahap-b-reddit.md) §3.
+The other two providers:
+
+```bash
+python -m src.scrape.run --provider oauth                    # default, needs REDDIT_CLIENT_ID/SECRET
+python -m src.scrape.run --provider apify --estimate-cost    # cost estimate only, no request sent
+```
+
+Apify is **disabled** on purpose: the marketplace actor breaches Reddit's User Agreement §7 and PRD §13. The code is kept as a measured record of that path, not as something to run.
+
+Why Arctic Shift: since November 2025 Reddit no longer self-serves app registration, `prefs/apps` redirects to the Responsible Builder Policy, and the Data API client ID only arrives after a manual request is approved. Unauthenticated `.json` calls return 403, `old.reddit.com` serves a placeholder page, and RSS carries posts but no comments. Arctic Shift serves archived comments without authentication. This is a deliberate, recorded deviation from the "no detours" working rule; see [`docs/tahap-b-reddit.md`](docs/tahap-b-reddit.md) and the decision log for what was tried and rejected.
 
 Output per run:
 
 ```text
-data/raw/reddit/<tag>-<timestamp>/texts.jsonl    raw records, one JSON per text; never overwritten
-data/raw/reddit/<tag>-<timestamp>/summary.json    counts per player, requests made
-data/interim/texts_reddit_<tag>.jsonl             handoff copy, replaced by the next run of the same tag
+data/raw/reddit/<tag>-<timestamp>/texts.jsonl      raw records, never overwritten
+data/raw/reddit/<tag>-<timestamp>/summary.json     counts per player, requests made
+data/raw/reddit/<tag>-<timestamp>/<player_id>.comments.json   Arctic Shift raw page cache
+data/interim/texts_reddit_<tag>.jsonl              handoff copy for the next stage
 ```
 
-Every record carries `player_id`, `source`, `unit_type` (`comment` or `sentence`), `text_clean_hash` for cross-source dedupe, `created_at`, `url`, `subreddit` and the `matched_alias` that triggered the hit. Comment authors are checked for bot markers and then discarded, never stored.
+Every record carries `player_id`, `source`, `unit_type` (`comment` or `sentence`), `text_clean_hash` for cross-source dedupe, `created_at`, `url`, `subreddit` and the `matched_alias` that triggered the hit. Comment authors are checked for bot markers and then discarded; the persisted payloads keep a fixed whitelist of fields so author identity cannot leak back in.
 
-A run logs the number of texts kept per player and lists players with none, so a silent empty scrape cannot pass as success. `make scrape` refuses to start until `data/processed/text_sample.parquet` exists and `text_sample.locked` is true.
+A run logs the number of texts kept per player and lists players with none, so a silent empty scrape cannot pass as success. A full run refuses to start until `data/processed/text_sample.parquet` exists and `text_sample.locked` is true. A `--pilot` run reads the sample but skips that lock check.
 
-Reddit retrieval is the part written so far. YouTube and article retrieval are person C's stage and are not implemented; `src/scrape/` is shared, so the text helpers and the population reader are meant to be reused there rather than duplicated.
+YouTube and article retrieval are person C's stage and are not implemented. `config.yaml` carries their whitelists, so the shapes are ready; there is no module behind them yet.
 
-## Layout
+---
+
+## Repository Navigation
 
 ```text
-config/config.yaml   league, season, source whitelist, thresholds, quotas
-docs/                PRD, weekly plan, overview, decision log
-src/population/      stage A, population and the locked text sample
-src/scrape/          stage B, Reddit, YouTube, article retrieval
+config/config.yaml   league, season, whitelist, thresholds, quotas, sampling seed
+docs/                PRD, weekly plan, overview, decision log, Reddit access notes
+src/population/      stage A, population build, sampling, alias handling
+src/scrape/          stage B, Reddit retrieval, alias index, relevance review
 src/link/            stage C, entity linking and text filtering
 src/nlp/             stage D, sentiment and aspect extraction
-src/score/           stage E, quality score and numeric validation
+src/score/           stage A/E numeric metrics; stage E text scoring to come
 src/viz/             stage F, figures and candidate table
 data/raw/            never overwritten, never committed
 data/processed/      cleaned data; text_sample.parquet holds the locked sample
+data/interim/        stage handoffs and the relevance review sheet
 reports/figures/     figures produced by the pipeline
-tests/               alias matching, date filters, schema checks
+tests/               alias matching, date filters, schema and scraping behaviour
 ```
 
-`make pipeline` is meant to run the whole thing from raw input to output. Per-stage targets exist so a failure is cheap to isolate. Only stage B (Reddit) has code behind it; the other targets still point at modules that do not exist.
-
-## Documents
+### Documents
 
 | File | Contents |
 |---|---|
@@ -111,53 +185,94 @@ tests/               alias matching, date filters, schema checks
 | [`docs/PRD.md`](docs/PRD.md) | Scope, data sources, stages A to F, dataset schema, definitions, metrics, risks, ethics |
 | [`docs/PLAN-1WEEK.md`](docs/PLAN-1WEEK.md) | Role split, seven-day schedule, report structure |
 | [`docs/decisions.md`](docs/decisions.md) | Every threshold change and technical decision, with the reasoning |
+| [`docs/tahap-b-reddit.md`](docs/tahap-b-reddit.md) | Reddit access record: what was tried, what was rejected, and why |
 | [`AGENTS.md`](AGENTS.md) | Rules for AI agents and contributors |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Setup, branch naming, commit format |
 
-The documents are in Indonesian, which is the working language of the team and of the course report. Code, identifiers, comments and commit messages are in English.
+---
 
-## Data sources
+## Tech Stack
 
-| Source | Role |
-|---|---|
-| Transfermarkt, FBref/FotMob via `soccerdata` | Roster, position, age, club, minutes played, market value |
-| r/soccer, r/PremierLeague, 20 club subreddits | Primary text source |
-| YouTube channels on the whitelist | Primary text source, comments and transcripts |
-| Scouting articles on the whitelist | Supplementary text |
-| X/Twitter | Out of scope for this phase |
+| Layer | Choice | State |
+|---|---|---|
+| Data frames | `pandas`, `pyarrow` | Installed and used |
+| HTTP | `requests` | Installed and used |
+| Config | `PyYAML`, `python-dotenv` | Installed and used |
+| Testing | `pytest` (the suite is plain `unittest` and also runs without it) | Installed and used |
+| Sentiment | `vaderSentiment` | Declared, not yet imported |
+| Aspect / linking | `rapidfuzz`, `spacy` | Declared, not yet imported |
+| Visuals | `matplotlib`, `plotly` | Declared, not yet imported |
+| Scraping extras | `praw`, `soccerdata`, `trafilatura`, `google-api-python-client`, `youtube-transcript-api` | Declared, not imported |
 
-One rating source is used across the whole project. Mixing FotMob and FBref makes the positional z-scores incomparable, so the choice is made once and recorded rather than merged.
+Only the first four groups are installed in the verified environment, which is enough for the whole of Stage A and the Reddit paths. Note that `requirements.txt` pins `pandas>=2.2,<3.0` while the verified environment runs pandas 3.1.1; a fresh `pip install -r requirements.txt` will resolve to 2.3.x. The suite has not been re-run against 2.x.
 
-## Evaluation
+`praw`, `soccerdata` and `trafilatura` are declared but never imported: the Reddit client is hand-written on `requests`, and the population build reads FotMob JSON directly.
+
+---
+
+## Evaluation Targets
 
 Every claim is meant to have a number behind it, and every number should trace back to a script here.
 
-| Metric | Target |
-|---|---|
-| Entity linking accuracy | 85 percent or higher on a manually labelled sample |
-| Retrieval relevance | 85 percent or higher on 100 randomly sampled texts |
-| Sentiment accuracy | 75 percent or higher on 100 manually labelled texts |
-| Inter-annotator agreement | Cohen's kappa, reported as measured |
-| Evidence sufficiency | 30 or more texts scored fully, 10 to 29 marked limited, under 10 not scored |
+| Metric | Target | How it is measured |
+|---|---|---|
+| Entity linking accuracy | 85% or higher | 100 texts labelled by four people |
+| Retrieval relevance | 85% or higher | 100 randomly sampled texts, checked by hand |
+| Sentiment accuracy | 75% or higher | Model labels against 100 manual labels |
+| Inter-annotator agreement | Cohen's kappa, reported as measured | 12 overlapping texts labelled by all four |
+| Evidence sufficiency | 30 or more texts scored fully, 10 to 29 marked limited, under 10 not scored | `n_texts` per player |
+| Main evidence metric | Share of text-based candidates that also sit above their positional rating median, reported; 60% or higher reads as a useful text signal | `player_summary` join |
 
-Players with fewer than 10 texts are labelled insufficient evidence and left out of the candidate table instead of being scored on thin data.
+Players with fewer than 10 texts are labelled insufficient evidence and left out of the candidate table rather than scored on thin data. No metric in this table has been produced yet: the relevance review sheet has never been filled, so retrieval relevance is unmeasured.
 
-## Data handling
+---
 
-Only public data is collected. The project does not bypass paywalls or other access controls, and it follows `robots.txt` and site terms. Comment authors are not stored. Raw data is not redistributed; only aggregates and code are shared.
+## Data Handling
 
-## Known limitations
+Only public data is collected. The project does not bypass paywalls or other access controls and follows `robots.txt` and site terms. Comment authors are never stored; a whitelist of persisted fields enforces this, and an audit found no usernames remaining after the fix. Raw data is not redistributed, and neither is any raw Reddit payload: it stays out of git and out of the shared repository.
 
-The text sample covers roughly 70 players rather than the whole league, so findings drawn from text apply to that sample. Coverage is one league and one season. Sentiment uses VADER with a keyword dictionary for aspects, which handles sarcasm and football slang poorly; those failures are documented in the report rather than filtered out. Percentiles computed within a position can be unstable at the tails because each positional group is small. "Hidden gem" in the Premier League reads closer to underrated than to unknown.
+---
 
-## Open decisions
+## Known Limitations
 
-Three items need a human decision:
+The text sample covers 70 players rather than the whole league, so findings drawn from text apply to that sample. Coverage is one league and one season. Sentiment uses VADER with a keyword dictionary for aspects, which handles sarcasm and football slang poorly; those failures belong in the report rather than being filtered out. Percentiles computed within a position are unstable at the tails because each positional group is small, so ranks and bootstrap intervals should accompany any percentile. "Hidden gem" in the Premier League reads closer to *underrated* than to unknown. Compound surnames are a known recall hole: aliases are built from the last token, so `Bruun Larsen` never matches, and a measured pilot showed three such comments dropped for one player.
+
+---
+
+## Development Status
+
+| Area | State | Evidence |
+|---|---|---|
+| Population and locking (Stage A) | **Implemented** | `make population`, `make lock-sample`; 340 players, 20 clubs, 70-player locked sample |
+| Numeric metrics and rating z-scores | **Implemented** | `make metrics`; 340 rows, 288 ratings z-scored |
+| Config validation | **Implemented** | `make config`; 12 sections, 20 clubs, source=fotmob |
+| Test suite | **Implemented** | `make test`; 235 passed |
+| Reddit retrieval (three providers) | **Implemented**, no full run yet | Code, tests and a 20-player pilot are written; the relevance gate has not been passed |
+| Subreddit name verification | **Partial** | `make scrape-verify` needs OAuth credentials that do not exist yet |
+| Relevance review tooling | **Partial** | `make review` and `make review-score` exist; no labels have been collected |
+| Arctic Shift volume measurement | **Partial** | `measure_volume.py` plus 11 tests; a probe, not wired into any `make` target |
+| YouTube retrieval | **Not started** | Config only, no module |
+| Article retrieval | **Not started** | Config only, disabled |
+| Entity linking (Stage C) | **Not started** | `src/link/` is an empty package |
+| Sentiment and aspects (Stage D) | **Not started** | `src/nlp/` is an empty package |
+| Text quality score and flags (Stage E) | **Not started** | Only the numeric half of `src/score/` exists |
+| Figures and candidate table (Stage F) | **Not started** | `src/viz/` is an empty package; `reports/figures/` is empty |
+| End-to-end pipeline | **Planned** | `make pipeline` stops at the first empty stage |
+
+---
+
+## Open Decisions
+
+Three items need a human decision, none of them settled:
 
 1. The output format the course requires: written report, presentation, or working dashboard.
 2. How many numeric columns are allowed while the dataset stays predominantly string-based.
 3. Whether X/Twitter is attempted. The current default is to skip it.
 
+---
+
 ## Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md). Work on a branch, open a pull request, and do not force push to `main`. Threshold changes go into [`docs/decisions.md`](docs/decisions.md) with the reasoning attached.
+
+The documents under `docs/` are in Indonesian, which is the working language of the team and of the course report. Code, identifiers, comments and commit messages are in English. This README is in English because it is the outward-facing file.
