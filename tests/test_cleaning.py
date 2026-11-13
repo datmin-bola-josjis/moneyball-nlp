@@ -34,6 +34,16 @@ def summary(examined: int = 200, kept: int = 100) -> dict:
                 "sentence_not_resolved": 11,
             },
         },
+        "per_channel": {
+            "Sky Sports Premier League": 80,
+            "Premier League": 15,
+            "Tifo Football": 5,
+        },
+        "per_channel_videos": {
+            "Sky Sports Premier League": 200,
+            "Premier League": 60,
+            "Tifo Football": 10,
+        },
     }
 
 
@@ -80,6 +90,35 @@ def test_the_current_run_has_no_unmapped_filters() -> None:
     text = cleaning.render(summary(), "full-1")
 
     assert "Filter yang belum punya baris di tabel" not in text
+
+
+def test_channel_distribution_comes_from_the_summary() -> None:
+    text = cleaning.render(summary(), "full-1")
+
+    assert "## Sebaran kanal" in text
+    assert "| Sky Sports Premier League | 200 | 80 | 80,0% |" in text
+    assert "| **Total** | **270** | **100** | 100% |" in text
+
+
+def test_a_summary_without_channel_counts_still_renders() -> None:
+    """Older runs predate `per_channel`; the table must not invent a section."""
+    payload = summary()
+    del payload["per_channel"]
+
+    text = cleaning.render(payload, "full-1")
+
+    assert "Sebaran kanal" not in text
+    assert "Tabel Cleaning YouTube" in text
+
+
+def test_channel_counts_without_upload_counts_still_render() -> None:
+    """A summary with comments per channel but no video counts keeps a usable table."""
+    payload = summary()
+    del payload["per_channel_videos"]
+
+    text = cleaning.render(payload, "full-1")
+
+    assert "| Sky Sports Premier League | 80 | 80,0% |" in text
 
 
 def test_a_summary_without_counters_names_the_fix(tmp_path: Path) -> None:

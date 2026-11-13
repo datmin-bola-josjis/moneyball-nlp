@@ -271,6 +271,8 @@ def test_run_writes_interim_and_summary(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert summary["players_without_text"] == ["Declan Rice"]
     assert summary["per_player"]["Bukayo Saka"] == 1
     assert summary["comments"] == 1
+    assert summary["per_channel"] == {"PL": 1}
+    assert summary["per_channel_videos"] == {"PL": 1}
 
 
 def test_channel_without_handle_fails_loudly(monkeypatch: pytest.MonkeyPatch,

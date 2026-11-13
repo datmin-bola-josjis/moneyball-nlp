@@ -9,6 +9,10 @@ The unit being counted is a **(player, comment) pair**, not a unique comment: th
 same top-level comment is examined once per player whose name it might mention.
 That is the right denominator for "why did this text not become evidence for
 this player", but it is not the number of comments in the corpus.
+
+The channel distribution is rendered from the same summary (`per_channel`), so
+the "one channel dominates" limitation in the report is a measured number rather
+than a manual count that nobody can reproduce.
 """
 
 from __future__ import annotations
@@ -68,7 +72,8 @@ def load_summary(path: Path | None = None) -> tuple[dict, Path]:
 
 
 def _share(value: int, total: int) -> str:
-    return f"{value / total:.1%}" if total else "—"
+    # Indonesian decimal comma, so the generated table reads like the docs.
+    return f"{value / total:.1%}".replace(".", ",") if total else "—"
 
 
 def render(summary: dict, run_name: str) -> str:
@@ -111,6 +116,37 @@ def render(summary: dict, run_name: str) -> str:
     for key, label, reason in SENTENCE_FILTERS:
         lines.append(f"| {label} | {int(dropped.get(key, 0))} | {reason} |")
 
+    channels = summary.get("per_channel") or {}
+    videos_per_channel = summary.get("per_channel_videos") or {}
+    if channels:
+        total = sum(int(value) for value in channels.values())
+        lines += [
+            "",
+            "## Sebaran kanal",
+            "",
+            "Komentar yang lolos per kanal, di samping jumlah unggahan dalam musim",
+            "dari kanal itu. Unggahan bukan satu-satunya penentu: kanal dengan",
+            "banyak video bisa menyumbang sedikit komentar bila videonya jarang",
+            "menyebut pemain sampel. Bandingkan kedua kolom sebelum menyimpulkan",
+            "bias sumber.",
+            "",
+        ]
+        if videos_per_channel:
+            lines += [
+                "| Kanal | Video dalam musim | Komentar | Porsi komentar |",
+                "|---|---|---|---|",
+            ]
+            for name, value in channels.items():
+                videos = videos_per_channel.get(name, "—")
+                lines.append(
+                    f"| {name} | {videos} | {int(value)} | {_share(int(value), total)} |"
+                )
+            lines.append(f"| **Total** | **{sum(videos_per_channel.values())}** | **{total}** | 100% |")
+        else:
+            lines += ["| Kanal | Komentar | Porsi |", "|---|---|---|"]
+            for name, value in channels.items():
+                lines.append(f"| {name} | {int(value)} | {_share(int(value), total)} |")
+            lines.append(f"| **Total** | **{total}** | 100% |")
     unaccounted = examined - kept - sum(int(dropped.get(k, 0)) for k, _, _ in COMMENT_FILTERS)
     known = {key for key, _, _ in COMMENT_FILTERS} | {key for key, _, _ in SENTENCE_FILTERS}
     unknown = {key: int(value) for key, value in dropped.items() if key not in known}

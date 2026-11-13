@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -570,6 +570,14 @@ def run(
             },
         },
         "per_player": per_player,
+        # Comment volume per channel, so the "Sky Sports dominates" limitation in
+        # the report is a number from the run rather than a manual count.
+        "per_channel": dict(
+            Counter(r.channel for r in all_records if r.unit_type == "comment").most_common()
+        ),
+        # In-season uploads per channel: the reason a channel dominates comments
+        # is how much it uploads, and that should be visible next to the share.
+        "per_channel_videos": dict(Counter(v.channel for v in videos).most_common()),
         "players_without_text": empty,
         "excluded_players": excluded,
     }

@@ -106,7 +106,10 @@ menenggelamkan sampel.
 Setiap penolakan dihitung di dalam `records_from_comment`, ditulis ke
 `summary.json`, lalu dirender oleh `src/scrape/cleaning.py` menjadi
 `reports/cleaning_youtube.md`. Angka di bawah berasal dari run
-`full-20261113-023244`; tidak ada yang ditulis dari ingatan.
+`full-20261113-025149`; tidak ada yang ditulis dari ingatan. Run ulang dari cache
+menghasilkan file teks yang identik sampai byte terakhir
+(`SHA256 4375CA08A8DEC4D7B08897AE888383B0DC15C1B731BBB1E400F3CC50986E854F`),
+jadi penghitung ini tidak mengubah korpus.
 
 Satuannya **pasangan (pemain, komentar)**, bukan komentar unik. Satu komentar
 diperiksa sekali untuk setiap pemain yang namanya mungkin disebut, jadi
@@ -143,6 +146,26 @@ masuk tepat satu keranjang.
 Tabel ini **tidak berubah** saat teks Reddit dari B masuk — ia hanya menjelaskan
 jalur YouTube.
 
+### Sebaran kanal
+
+Komentar yang lolos per kanal, di samping jumlah unggahan dalam musim dari kanal
+itu:
+
+| Kanal | Video dalam musim | Komentar | Porsi komentar |
+|---|---|---|---|
+| Sky Sports Premier League | 2.075 | 747 | 70,9% |
+| The Athletic FC | 317 | 144 | 13,7% |
+| Premier League | 1.329 | 104 | 9,9% |
+| Tifo Football | 287 | 31 | 2,9% |
+| The Overlap | 973 | 28 | 2,7% |
+| **Total** | **4.981** | **1.054** | 100% |
+
+Unggahan bukan satu-satunya penentu: The Overlap mengunggah 973 video tetapi
+hanya menyumbang 28 komentar, sedangkan The Athletic 317 video menghasilkan 144
+komentar. Yang menentukan adalah apakah video kanal itu menyebut pemain sampel
+dan apakah komentarnya menyebut nama pemain itu. Konsekuensinya dibahas di
+keterbatasan #5.
+
 ## Kuota dan cache
 
 Kuota YouTube Data API 10.000 unit/hari, reset tengah malam waktu Pasifik. Total
@@ -177,16 +200,18 @@ Hasilnya `reports/retrieval_relevance_youtube.md`, terpisah dari laporan Reddit.
 Jalur Reddit tidak berubah sama sekali: nama sheet, nama laporan, dan angkanya
 tetap seperti sebelumnya.
 
-**Status: sheet sudah ditarik dari `texts_youtube_pilot20.jsonl` (231 komentar,
-20 pemain), 100 baris, 10 pemain berbeda, belum dilabeli.** Pelabelan harus
+**Status: sheet sudah ditarik dari `texts_youtube_pilot20.jsonl` (231 komentar dari
+12 pemain; run itu memproses 20 pemain dan 8 di antaranya tidak mendapat komentar
+sama sekali), 100 baris, 10 pemain berbeda, belum dilabeli.** Pelabelan harus
 dilakukan manusia — angka gate yang diisi sendiri oleh pembuat kode tidak sah.
 Lembar ini tidak boleh ditarik ulang setelah ada label; skrip menolak dan meminta
 lembar lama dipindahkan.
 
 Satu catatan metodologis: sampel acak seragam atas komentar membuat pemain
-bervolume besar mendominasi lembar (10 pemain dari 20). Gate ini mengukur
-**presisi**, bukan cakupan. Karena itu gate pilot tidak boleh dibaca sebagai
-gambaran pemerataan bukti antar pemain — untuk itu lihat tabel kecukupan di atas.
+bervolume besar mendominasi lembar (10 dari 12 pemain yang punya komentar). Gate
+ini mengukur **presisi**, bukan cakupan. Karena itu gate pilot tidak boleh dibaca
+sebagai gambaran pemerataan bukti antar pemain — untuk itu lihat tabel kecukupan
+di atas.
 
 **Urutan yang menyimpang dari AGENTS.md, dicatat terbuka.** Run penuh (1.054
 komentar) sudah dijalankan sebelum lembar gate ini dilabeli, padahal aturannya
@@ -268,9 +293,15 @@ harus disebut saat membandingkan jumlah bukti antar pemain.
 
 ### 5. Komposisi kanal tidak seimbang
 
-Pada pilot 20 pemain, 108 dari 152 komentar berasal dari Sky Sports Premier League.
-Sky Sports mengunggah paling banyak (2.075 video dalam musim), jadi otomatis
-dominan. Ini bias sumber yang perlu disebut, bukan sesuatu yang dinetralkan.
+Pada run penuh, **747 dari 1.054 komentar (70,9%)** berasal dari Sky Sports
+Premier League; The Athletic FC 13,7%, Premier League 9,9%, Tifo Football 2,9%,
+The Overlap 2,7%. Sky Sports memang mengunggah paling banyak (2.075 video dalam
+musim), tetapi volume unggahan saja tidak menjelaskan komposisi ini: The Overlap
+mengunggah 973 video dan hanya menyumbang 28 komentar, sementara The Athletic
+317 video menyumbang 144. Yang menentukan adalah video mana yang menyebut pemain
+sampel dan komentar mana yang menyebut namanya. Angka per kanal dihasilkan oleh
+`src/scrape/cleaning.py` dari `summary.json` run itu, bukan hitungan manual. Ini
+bias sumber yang perlu disebut, bukan sesuatu yang dinetralkan.
 
 ### 6. Tumpang tindih Tifo dan The Athletic
 
