@@ -208,6 +208,17 @@ def test_run_writes_output_and_report_without_touching_inputs(tmp_path: Path) ->
     assert (reddit_file.read_bytes(), youtube_file.read_bytes()) == before
 
 
+def test_an_unknown_column_is_reported_not_silently_dropped(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A handoff file with a new column must not lose it without a word."""
+    extra = {**row("youtube", "Saka is elite"), "new_field_from_b": "x"}
+
+    dedupe.write_output([extra], tmp_path / "out.parquet")
+
+    assert "new_field_from_b" in caplog.text
+
+
 # ------------------------------------------------------------------- report
 
 

@@ -227,6 +227,14 @@ def write_output(rows: list[dict], path: Path | None = None) -> Path:
     """
     target = Path(path) if path is not None else OUTPUT
     target.parent.mkdir(parents=True, exist_ok=True)
+    # A schema change in a handoff file must be visible, not silently trimmed:
+    # a new column from person B would otherwise disappear without a word.
+    seen = {key for row in rows for key in row}
+    unknown = sorted(seen - set(COLUMNS))
+    if unknown:
+        log.warning(
+            "dropping %d column(s) not in the schema: %s", len(unknown), ", ".join(unknown)
+        )
     frame = pd.DataFrame(rows).reindex(columns=COLUMNS)
     frame.to_parquet(target, index=False)
     log.info("wrote %d rows -> %s", len(frame), target)
