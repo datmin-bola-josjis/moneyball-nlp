@@ -1,6 +1,7 @@
 # Tahap B — YouTube (komentar kanal whitelist)
 
 Status: **kolektor komentar selesai dan sudah dijalankan penuh untuk 70 pemain.**
+Dedupe silang dengan Reddit juga sudah selesai (0 duplikat; lihat bagian Dedupe).
 Transkrip video **belum** diambil meskipun `include_transcript: true` ada di config.
 
 Dokumen ini menjelaskan apa yang diambil, keputusan yang diambil beserta angkanya,
@@ -331,32 +332,46 @@ make dedupe REDDIT_TAG=partial26    # uji coba pada data yang sudah ada
 Keluaran: `data/processed/texts_deduped.parquet` (17 kolom; `channel` dan
 `video_id` kosong untuk baris Reddit). File masukan hanya dibaca, tidak ditimpa.
 
-Cakupannya sengaja sempit, dan alasannya angka yang diukur pada file nyata:
+Cakupannya sengaja sempit, dan alasannya angka yang diukur pada file penuh:
 
 | Aturan | Alasan |
 |---|---|
-| Kunci `(player_id, text_clean_hash)`, bukan hash saja | 53 komentar di file Reddit pilot dipakai **lebih dari satu pemain**; menyatukan hash akan memutus tautan entitas yang benar |
-| Komentar dibandingkan dengan komentar, kalimat dengan kalimat | 281 hash di file Reddit dan 556 di YouTube dipakai komentar **dan** kalimatnya sendiri; dedupe naif akan menghapus unit yang dipakai analisis sentimen |
-| Hanya antar sumber | duplikat di dalam satu sumber sudah dibuang scraper, dan tidak diulang di sini |
+| Kunci `(player_id, text_clean_hash)`, bukan hash saja | **330** hash di file Reddit penuh dipakai **lebih dari satu pemain** (53 pada pilot); menyatukan hash akan memutus tautan entitas yang benar |
+| Komentar dibandingkan dengan komentar, kalimat dengan kalimat | **831** hash di Reddit dan **556** di YouTube dipakai komentar **dan** kalimatnya sendiri; dedupe naif akan menghapus unit yang dipakai analisis sentimen |
+| Hanya antar sumber | duplikat komentar di dalam satu sumber sudah dibuang scraper; yang tersisa hanya kalimat identik di dua komentar berbeda, dan itu dilaporkan (7 pasang), bukan dibuang |
 
 Bila duplikat ditemukan, baris Reddit dipertahankan dan salinan YouTube dibuang —
 teksnya identik, jadi pilihan ini tidak mengubah sentimen.
 
-**Hasil uji coba** (`texts_reddit_partial26.jsonl` × `texts_youtube_full.jsonl`,
-24 pemain Reddit dan 69 pemain YouTube): **0 duplikat** dari 1.163 komentar
-Reddit dan 1.054 komentar YouTube. Nol adalah temuan, bukan kegagalan: komentar
-di dua platform hampir tidak pernah identik kata per kata. Nilai dedupe ini ada
-pada buktinya, bukan pada jumlah yang dibuang.
+**Hasil final** (`texts_reddit_full.jsonl` × `texts_youtube_full.jsonl`):
+**0 duplikat silang** dari 3.442 komentar Reddit dan 1.054 komentar YouTube.
+Keluaran 9.220 baris (7.061 Reddit + 2.159 YouTube), 68 pemain, 17 kolom.
 
-**Status: belum final.** Angka di atas berlaku untuk data pilot. Dedupe final
-menunggu `data/interim/texts_reddit_full.jsonl` 70 pemain dari B, lalu
-`make dedupe` dijalankan ulang — perintah dan keluarannya sama, hanya angkanya
-yang berubah.
+Nol adalah temuan, bukan kegagalan: komentar di dua platform hampir tidak pernah
+identik kata per kata. Nilai dedupe ini ada pada buktinya — bahwa cakupan yang
+sempit itu tidak membuang apa pun yang sah — bukan pada jumlah yang dibuang.
+
+Dua hal yang hanya terlihat setelah kedua sumber digabung:
+
+- **2 dari 70 pemain tidak punya teks sama sekali** dari kedua sumber: Jacob
+  Bruun Larsen dan Jørgen Strand Larsen. Keduanya harus berlabel `bukti tidak
+  cukup` dan tidak masuk tabel kandidat (aturan 8).
+- **7 pasang kalimat identik dalam satu pemain** (0,2% dari 3.619 kalimat
+  Reddit) tetap ada. Itu kalimat yang sama di dua komentar berbeda; dedupe ini
+  tidak menyentuh duplikat dalam satu sumber, jadi D perlu menyaringnya saat
+  agregasi kalau tidak ingin bobotnya dihitung dua kali.
+
+Setelah penggabungan, sebaran bukti menjadi 59 pemain `bukti cukup`, 4 `bukti
+terbatas`, 5 `bukti tidak cukup` (2 di antaranya nol). Angka itu dihitung dari
+`texts_deduped.parquet` dan menjadi milik D untuk dilaporkan, bukan angka di
+dokumen ini.
 
 ## Serah terima ke D
 
 `data/` gitignored, jadi file diserahkan langsung, bukan lewat git:
-`data/interim/texts_youtube_full.jsonl`.
+`data/processed/texts_deduped.parquet` (hasil gabungan Reddit × YouTube siap
+pakai, 9.220 baris) dan `data/interim/texts_youtube_full.jsonl` (khusus
+YouTube).
 
 Bentuk record sama dengan Reddit karena `YouTubeTextRecord` mewarisi `TextRecord`:
 15 kolom identik, ditambah 2 kolom YouTube.
@@ -386,8 +401,6 @@ Dua hal yang harus D tangani:
 
 - Transkrip video (`include_transcript`).
 - Balasan komentar.
-- Dedupe silang final: skripnya sudah ada (`make dedupe`), tapi angka final
-  menunggu `texts_reddit_full.jsonl` 70 pemain dari B.
 - Perbaikan `aliases.py` untuk bug awalan nama — menunggu keputusan pemilik jalur
   Reddit karena mengubah angka mereka.
 
@@ -408,7 +421,7 @@ Setara tanpa `make`:
 ```bash
 .venv/Scripts/python.exe -m src.scrape.youtube --pilot 20
 .venv/Scripts/python.exe -m src.scrape.run --sample --n-sample 100 --source youtube
-.venv/Scripts/python.exe -m src.scrape.cleaning --run full-20261113-023244
+.venv/Scripts/python.exe -m src.scrape.cleaning --run full-20261113-025149
 ```
 
 Butuh `YOUTUBE_API_KEY` di `.env`. Kalau kosong, skrip berhenti dengan instruksi

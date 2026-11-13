@@ -125,12 +125,21 @@ def _diagnostics(rows: list[dict]) -> dict:
             continue
         players[digest].add(str(row.get("player_id") or ""))
         types[digest].add(str(row.get("unit_type") or ""))
+    # Same text, same player, same unit: the one duplicate a single-source
+    # scraper is supposed to have removed. Reported so the claim "the scraper
+    # already did this" is checked rather than assumed.
+    same = Counter(
+        (str(r.get("player_id") or ""), str(r.get("unit_type") or ""), str(r.get("text_clean_hash") or ""))
+        for r in rows
+        if r.get("text_clean_hash")
+    )
     return {
         "rows": len(rows),
         "unique_hashes": len([h for h in hashes if h]),
         "repeated_hashes": sum(1 for h, n in hashes.items() if h and n > 1),
         "hashes_across_players": sum(1 for p in players.values() if len(p) > 1),
         "hashes_comment_and_sentence": sum(1 for t in types.values() if len(t) > 1),
+        "within_player_repeats": sum(1 for n in same.values() if n > 1),
     }
 
 
@@ -275,8 +284,10 @@ def write_report(
         "- Komentar dibandingkan dengan komentar, kalimat dengan kalimat. Komentar",
         "  dan kalimatnya sendiri memang berbagi hash; menyamakan keduanya akan",
         "  menghapus unit yang dipakai analisis sentimen.",
-        "- Hanya antar sumber. Duplikat di dalam satu sumber sudah dibuang oleh",
-        "  scraper, dan tidak diulang di sini.",
+        "- Hanya antar sumber. Duplikat **komentar** di dalam satu sumber sudah",
+        "  dibuang scraper lewat `text_clean_hash`. Kalimat identik yang muncul di",
+        "  dua komentar berbeda tidak tertangani di sini; jumlahnya dilaporkan di",
+        "  bawah, bukan dibuang diam-diam.",
         "- Bila duplikat ditemukan, baris **Reddit** dipertahankan dan salinan",
         "  YouTube dibuang. Teksnya identik, jadi pilihan ini tidak mengubah",
         "  sentimen; Reddit dipilih karena sumber utamanya (PRD §7).",
@@ -328,9 +339,19 @@ def write_report(
         f"| Hash dipakai komentar **dan** kalimatnya | "
         f"{diagnostics['reddit']['hashes_comment_and_sentence']} | "
         f"{diagnostics['youtube']['hashes_comment_and_sentence']} |",
+        f"| Teks sama untuk pemain yang sama (dalam satu sumber) | "
+        f"{diagnostics['reddit']['within_player_repeats']} | "
+        f"{diagnostics['youtube']['within_player_repeats']} |",
         "",
         "`drop_duplicates('text_clean_hash')` akan menghapus semua baris pada dua",
-        "baris terakhir tabel itu — kalimat yang sah dan tautan pemain yang benar.",
+        "baris tengah tabel itu — kalimat yang sah dan tautan pemain yang benar.",
+        "",
+        "Baris terakhir adalah duplikat yang seharusnya sudah dibuang scraper. Untuk",
+        "**komentar** memang sudah nol. Yang tersisa adalah **kalimat** yang sama di",
+        "dua komentar berbeda pada satu pemain: dua orang mengutip kalimat yang sama,",
+        "atau teks berita yang diposting ulang. Dedupe ini tidak menyentuhnya karena",
+        "cakupannya hanya antar sumber; kalau D ingin bobot sentimen tidak dihitung",
+        "dua kali, saring di tahap agregasi per pemain.",
         "",
     ]
 
@@ -353,7 +374,7 @@ def write_report(
         "## Yang tidak diubah",
         "",
         "- File masukan hanya dibaca, tidak pernah ditimpa (aturan 5).",
-        "- Duplikat di dalam satu sumber tidak disentuh; itu tugas scraper.",
+        "- Duplikat komentar di dalam satu sumber tidak disentuh; itu tugas scraper.",
         "- Baris kalimat yang komentar induknya bertahan tetap ada.",
         "",
         "## Perintah",

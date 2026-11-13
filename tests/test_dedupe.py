@@ -154,6 +154,19 @@ def test_rows_without_a_hash_are_never_merged() -> None:
     assert stats["dropped"]["comments"] == 0
 
 
+def test_identical_texts_within_one_source_are_counted_not_removed() -> None:
+    """A duplicate the scraper missed is reported, because this pass cannot drop it."""
+    reddit = [
+        row("reddit", "Saka was clinical", text_id="rd_a"),
+        row("reddit", "Saka was clinical", text_id="rd_b"),
+    ]
+
+    rows, stats = dedupe.merge(reddit, [])
+
+    assert len(rows) == 2
+    assert stats["diagnostics"]["reddit"]["within_player_repeats"] == 1
+
+
 # ------------------------------------------------------------------ reading
 
 
