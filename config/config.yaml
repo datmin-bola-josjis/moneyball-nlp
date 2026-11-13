@@ -50,7 +50,7 @@ text_sample:
   stratify_by: market_value_quartile
   random_seed: 20252026
   locked: true
-  locked_at: '2026-11-12'
+  locked_at: '2026-11-13'
   locked_file: data/processed/text_sample.parquet
 data_source:
   provider: fotmob
