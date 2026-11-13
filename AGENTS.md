@@ -93,6 +93,8 @@ Jangan diubah tanpa persetujuan tim + catatan di `docs/decisions.md`.
 | Sumber rating | `fotmob` | Tetapkan sekali: `validation.rating_source` di `config/config.yaml`, bukan dipilih ulang Hari 1. Satu sumber saja supaya z-score bermakna |
 | Sumber harga | `fotmob` (`playerData.marketValues`) | Transfermarkt **tidak bisa dipakai** (HTTP 405 di semua path); keputusan dan buktinya di `docs/decisions.md` |
 | Sofascore | tidak dipakai | Tidak dapat diakses |
+| Bentuk output akhir | Demo dashboard + laporan ringkas | Disepakati internal 2026-11-13 (`output.dashboard: true`, prinsip "Text-First, Number-Second"); belum dikonfirmasi dosen; stack ditetapkan di Stage 0 |
+| Batas kolom numerik | Dual-Tier Cap (≤ 20% teks; 19 col / 6 num = 31,6% `player_summary`) | Disepakati internal 2026-11-13 (usulan Argon, disetujui User/Tim); `metrics_numeric` diisolasi sebagai validator internal; belum dikonfirmasi dosen |
 | Ditunda | BERTopic, filter playstyle, model aspek kustom | Future work, bukan scope 1 minggu |
 
 ## Aturan yang tidak boleh dilanggar
@@ -158,9 +160,9 @@ Berlaku untuk laporan, README, komentar kode, dashboard, dan jawaban ke tim.
 
 Jangan diputuskan sendiri:
 
-- Bentuk output yang dinilai dosen (laporan / presentasi / demo dashboard)
-- Porsi kolom numerik agar dataset tetap "dominan string"
-- Pemakaian X/Twitter (default: dilewati)
+- Bentuk output yang dinilai dosen — *disepakati internal 2026-11-13: demo dashboard + laporan ringkas (`output.dashboard: true`); belum dikonfirmasi dosen; pilihan stack butuh persetujuan manusia di Stage 0*
+- Porsi kolom numerik agar dataset tetap "dominan string" — *disepakati internal 2026-11-13: Dual-Tier Numeric Cap (Tier 1 ≤ 20%, Tier 2 `player_summary` 19 kolom / 6 numerik = 31,6% ≤ 35%, `metrics_numeric` diisolasi sebagai validator internal); belum dikonfirmasi dosen*
+- Pemakaian X/Twitter — *dilewati final (2026-11-13)*
 - Menambah anggota populasi di luar data terstruktur
 - Menambah dependensi atau fitur di luar PRD
 
