@@ -65,6 +65,23 @@ def test_zero_examined_does_not_divide_by_zero() -> None:
     assert "—" in text
 
 
+def test_a_new_filter_is_named_instead_of_explained_as_quota_truncation() -> None:
+    """A counter added to the collector must not be read as 'skipped at quota'."""
+    payload = summary()
+    payload["filters"]["dropped"]["off_topic"] = 4
+
+    text = cleaning.render(payload, "full-1")
+
+    assert "Filter yang belum punya baris di tabel" in text
+    assert "| `off_topic` | 4 |" in text
+
+
+def test_the_current_run_has_no_unmapped_filters() -> None:
+    text = cleaning.render(summary(), "full-1")
+
+    assert "Filter yang belum punya baris di tabel" not in text
+
+
 def test_a_summary_without_counters_names_the_fix(tmp_path: Path) -> None:
     path = tmp_path / "summary.json"
     path.write_text(json.dumps({"run": "old"}), encoding="utf-8")

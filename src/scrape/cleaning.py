@@ -112,6 +112,26 @@ def render(summary: dict, run_name: str) -> str:
         lines.append(f"| {label} | {int(dropped.get(key, 0))} | {reason} |")
 
     unaccounted = examined - kept - sum(int(dropped.get(k, 0)) for k, _, _ in COMMENT_FILTERS)
+    known = {key for key, _, _ in COMMENT_FILTERS} | {key for key, _, _ in SENTENCE_FILTERS}
+    unknown = {key: int(value) for key, value in dropped.items() if key not in known}
+    if unknown:
+        # A filter added to the collector but not to the table above would
+        # otherwise be folded into the "unaccounted" line and explained as quota
+        # truncation, which would be a wrong explanation rather than a missing one.
+        lines += [
+            "",
+            "## Filter yang belum punya baris di tabel",
+            "",
+            "Penghitung ini ada di `summary.json` tetapi belum dipetakan di",
+            "`src/scrape/cleaning.py`, jadi angkanya belum masuk tabel di atas:",
+            "",
+            "| Kunci | Dibuang |",
+            "|---|---|",
+        ]
+        for key, value in sorted(unknown.items()):
+            lines.append(f"| `{key}` | {value} |")
+        lines.append("")
+
     lines += [
         "",
         "## Catatan cara membaca",
