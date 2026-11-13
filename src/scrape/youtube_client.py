@@ -31,6 +31,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any, Final, Iterator
@@ -87,6 +88,13 @@ class QuotaExceeded(YouTubeError):
 
 class CommentsDisabled(YouTubeError):
     """The video has comments turned off; this is data, not a failure."""
+
+
+def _redact_key(text: str, api_key_value: str) -> str:
+    redacted = re.sub(r"([?&]key=)[^&\s\"']+", r"\1<REDACTED>", text)
+    if api_key_value:
+        redacted = redacted.replace(api_key_value, "<REDACTED>")
+    return redacted
 
 
 def _error_info(payload: dict[str, Any]) -> tuple[str, str]:
@@ -199,7 +207,8 @@ class YouTubeClient:
                 log.warning("corrupt cache entry, refetching: %s", cache_path.name)
 
         query = dict(params)
-        query["key"] = self._key_value()
+        key_value = self._key_value()
+        query["key"] = key_value
         url = f"{BASE_URL}/{endpoint}"
 
         last_error = ""
@@ -215,8 +224,9 @@ class YouTubeClient:
                     timeout=self.timeout,
                 )
             except requests.RequestException as exc:
-                last_error = f"network: {exc}"
-                log.warning("request failed (%d/%d) %s: %s", attempt, MAX_ATTEMPTS, endpoint, exc)
+                safe_exc = _redact_key(str(exc), key_value)
+                last_error = f"network: {safe_exc}"
+                log.warning("request failed (%d/%d) %s: %s", attempt, MAX_ATTEMPTS, endpoint, safe_exc)
             else:
                 if response.status_code == 200:
                     payload = _strip_authors(response.json())
@@ -229,6 +239,8 @@ class YouTubeClient:
                 except ValueError:
                     body = {}
                 reason, message = _error_info(body)
+                safe_message = _redact_key(message[:200], key_value)
+                safe_body = _redact_key(response.text[:200], key_value)
 
                 if reason == "commentsDisabled":
                     raise CommentsDisabled(f"comments disabled on {params}")
@@ -239,14 +251,14 @@ class YouTubeClient:
                     )
                 if reason in HARD_REASONS:
                     raise YouTubeError(
-                        f"HTTP {response.status_code} {reason}: {message[:200]}"
+                        f"HTTP {response.status_code} {reason}: {safe_message}"
                     )
 
                 last_error = f"HTTP {response.status_code} {reason or 'unknown'}"
                 if response.status_code not in RETRYABLE_STATUS and reason != "rateLimitExceeded":
                     raise YouTubeError(
                         f"HTTP {response.status_code} for {endpoint} {params}: "
-                        f"{message[:200] or response.text[:200]}"
+                        f"{safe_message or safe_body}"
                     )
                 retry_after = response.headers.get("Retry-After")
                 delay = min(float(retry_after), 60.0) if retry_after else BACKOFF_BASE**attempt

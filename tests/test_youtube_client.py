@@ -217,3 +217,26 @@ def test_single_page_stops_without_a_token(tmp_path: Path) -> None:
 def test_min_interval_cannot_go_below_the_floor(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="AGENTS.md"):
         YouTubeClient(cache_dir=tmp_path / "cache", api_key_value="k", min_interval=0.2)
+
+
+def test_request_exception_redacts_api_key_in_logs_and_error(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    import requests
+
+    secret = "AIzaSyFakeTestSecretKey12345"
+    err = requests.ConnectionError(
+        f"Max retries exceeded with url: /youtube/v3/channels?part=snippet&key={secret}"
+    )
+    session = FakeSession([err] * 4)
+    client = YouTubeClient(
+        cache_dir=tmp_path / "cache", api_key_value=secret, session=session
+    )
+
+    with caplog.at_level("WARNING"):
+        with pytest.raises(YouTubeError) as excinfo:
+            client.get("channels", part="snippet")
+
+    assert secret not in str(excinfo.value)
+    assert secret not in caplog.text
+    assert "<REDACTED>" in str(excinfo.value)
