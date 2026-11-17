@@ -28,8 +28,13 @@ this, every bare-surname mention ("Saka was clinical") would be dropped and
 recall would collapse. The 85% relevance gate (PRD §11) is what measures
 whether this is too loose.
 
-Transcripts (`include_transcript: true` in config) are NOT collected here yet.
-Do not report transcript coverage from this module.
+Transcripts (`include_transcript: true` in config) are collected by
+`transcript_client`/`records_from_transcript` below. They are written as
+`unit_type="sentence"`, not a bespoke type, because PRD §8 locks `unit_type` to
+`comment`/`sentence` and Stage D selects only `sentence` - a custom type would be
+stored and then never analysed. The run summary reports how many transcript
+sentences were kept and why the rest were dropped, so coverage is a number from
+the run rather than an assumption from the config flag.
 """
 
 from __future__ import annotations
@@ -37,6 +42,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -431,6 +437,167 @@ def records_from_comment(
     return records
 
 
+# ---------------------------------------------------------------- transcripts
+TranscriptFetcher = Callable[[str], list[str]]
+
+TRANSCRIPT_SEGMENT_WORDS = 60
+
+
+class TranscriptUnavailable(Exception):
+    """Raised when a video has no usable transcript; never fatal for the run."""
+
+
+def transcript_client(video_id: str) -> list[str]:
+    """Fetch one video's English transcript as a list of caption lines.
+
+    Imported lazily so the module still imports (and the suite still runs) on a
+    machine where `youtube-transcript-api` is absent - `make setup` installs it,
+    but a checkout that only wants the comment path should not break.
+
+    `include_transcript: true` sat in `config/config.yaml` while nothing read it;
+    this function is the reader, so the flag now describes real behaviour.
+    """
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+        from youtube_transcript_api._errors import (
+            NoTranscriptFound,
+            TranscriptsDisabled,
+            VideoUnavailable,
+        )
+    except ImportError as exc:  # pragma: no cover - depends on the environment
+        raise TranscriptUnavailable(
+            "youtube-transcript-api is not installed; run `make setup`"
+        ) from exc
+
+    try:
+        fetched = YouTubeTranscriptApi().fetch(video_id, languages=["en"])
+    except TranscriptsDisabled as exc:
+        raise TranscriptUnavailable("transcripts_disabled") from exc
+    except NoTranscriptFound as exc:
+        raise TranscriptUnavailable("no_english_transcript") from exc
+    except VideoUnavailable as exc:
+        raise TranscriptUnavailable("video_unavailable") from exc
+
+    return [str(snippet.text or "").strip() for snippet in fetched.snippets]
+
+
+def segment_transcript(lines: list[str], window: int = TRANSCRIPT_SEGMENT_WORDS) -> list[str]:
+    """Join caption lines, then cut them into fixed word windows.
+
+    Captions arrive as ~3-word fragments. Scoring sentiment on those would be
+    noise, so the windows are the unit that reaches Stage D. `window <= 0` would
+    make the loop non-terminating, hence the clamp.
+    """
+    words = " ".join(lines).split()
+    if not words:
+        return []
+    size = max(int(window), 1)
+    return [" ".join(words[i : i + size]) for i in range(0, len(words), size)]
+
+
+def records_from_transcript(
+    lines: list[str],
+    video: VideoCandidate,
+    player: Player,
+    index: AliasIndex,
+    league_clubs: list[str],
+    min_words: int,
+    seen_hashes: set[str],
+    thread_context: bool,
+    window: int = TRANSCRIPT_SEGMENT_WORDS,
+    counters: dict[str, int] | None = None,
+) -> list[YouTubeTextRecord]:
+    """Transcript sentences that name the player, as `sentence` records.
+
+    The unit type is `sentence`, not a new `transcript_segment`, because PRD §8
+    locks `unit_type` to `comment`/`sentence` and Stage D reads only
+    `unit_type == "sentence"`. A segment-shaped record would be collected,
+    written, and then silently never analysed - collected data that no stage
+    reads is worse than no data, because the report would count coverage that
+    never reaches a score.
+
+    Same filters as comments, and the same rule 17 discipline: a bare surname in
+    a broadcast transcript is only kept when the video supplies club context.
+    Transcript sentences carry `parent_text_id=None` because there is no comment
+    parent; `thread_id` is the video.
+    """
+    counters = counters if counters is not None else {}
+
+    def drop(reason: str) -> None:
+        counters[f"dropped_{reason}"] = counters.get(f"dropped_{reason}", 0) + 1
+
+    created = _published_at(video.published_at)
+    if created is None:
+        drop("transcript_no_date")
+        return []
+    start, end = _season_window()
+    if not (start <= created.date().isoformat() <= end):
+        drop("transcript_outside_season")
+        return []
+
+    records: list[YouTubeTextRecord] = []
+    for position, segment in enumerate(segment_transcript(lines, window)):
+        cleaned = clean_text(segment)
+        if word_count(cleaned) < min_words:
+            drop("transcript_too_short")
+            continue
+        if not is_english(cleaned):
+            drop("transcript_not_english")
+            continue
+        if is_bot_like("", cleaned):
+            drop("transcript_bot_like")
+            continue
+
+        for offset, sentence in enumerate(split_sentences(cleaned)):
+            sentence_clean = clean_text(sentence)
+            if word_count(sentence_clean) < min_words:
+                drop("transcript_sentence_too_short")
+                continue
+
+            sentence_hash = text_hash(sentence_clean)
+            if sentence_hash in seen_hashes:
+                drop("transcript_duplicate")
+                continue
+
+            alias = index.find_mentions(sentence_clean, player.player_id)
+            if not index.resolves(
+                alias, sentence_clean, player.player_id, league_clubs, thread_context
+            ):
+                drop("transcript_name_not_resolved")
+                continue
+
+            seen_hashes.add(sentence_hash)
+            # Counted here, at the only place a transcript record is created.
+            # `unit_type` is "sentence" for both comment sentences and transcript
+            # sentences, so the summary cannot tell them apart afterwards; a
+            # counter cannot drift from what was actually appended.
+            counters["transcript_sentences_kept"] = (
+                counters.get("transcript_sentences_kept", 0) + 1
+            )
+            records.append(
+                YouTubeTextRecord(
+                    text_id=f"yt_{video.video_id}_t{position}_{offset}_{player.player_id}",
+                    player_id=player.player_id,
+                    source="youtube",
+                    unit_type="sentence",
+                    text_raw=sentence_clean,
+                    text_clean=sentence_clean,
+                    text_clean_hash=sentence_hash,
+                    language="en",
+                    created_at=created.astimezone(timezone.utc).isoformat(timespec="seconds"),
+                    url=f"https://www.youtube.com/watch?v={video.video_id}&t={position}",
+                    thread_id=video.video_id,
+                    subreddit="",
+                    engagement=0,
+                    matched_alias=str(alias),
+                    parent_text_id=None,
+                    channel=video.channel,
+                    video_id=video.video_id,
+                )
+            )
+    return records
+
+
 def extract_for_player(
     client: YouTubeClient,
     player: Player,
@@ -440,6 +607,8 @@ def extract_for_player(
     quota: int,
     min_words: int,
     counters: dict[str, int] | None = None,
+    include_transcript: bool = False,
+    transcript_fetcher: TranscriptFetcher | None = None,
 ) -> list[YouTubeTextRecord]:
     counters = counters if counters is not None else {}
     records: list[YouTubeTextRecord] = []
@@ -488,6 +657,36 @@ def extract_for_player(
             counters["video_errors"] = counters.get("video_errors", 0) + 1
             log.warning("video %s failed: %s", video.video_id, exc)
 
+        if include_transcript and transcript_fetcher is not None:
+            try:
+                lines = transcript_fetcher(video.video_id)
+            except TranscriptUnavailable as exc:
+                # A video without captions is normal, not an error: count the
+                # reason so the report can say why coverage is what it is.
+                counters[f"transcript_{exc}"] = counters.get(f"transcript_{exc}", 0) + 1
+            except Exception as exc:  # network/parse failures must not kill the run
+                counters["transcript_errors"] = counters.get("transcript_errors", 0) + 1
+                log.warning("transcript %s failed: %s", video.video_id, exc)
+            else:
+                counters["transcript_videos"] = counters.get("transcript_videos", 0) + 1
+                records.extend(
+                    records_from_transcript(
+                        lines,
+                        video,
+                        player,
+                        index,
+                        league_clubs,
+                        min_words,
+                        seen_hashes,
+                        context,
+                        counters=counters,
+                    )
+                )
+
+    # Transcript sentences are `unit_type="sentence"` like comment sentences, so
+    # they are returned by the sentence branch rather than a third filter. The
+    # dedupe/summary code tells them apart with `text_id`, not `unit_type`
+    # (see `_is_transcript`).
     return [record for record in records if record.unit_type == "comment"][:quota] + [
         record for record in records if record.unit_type == "sentence"
     ]
@@ -495,7 +694,10 @@ def extract_for_player(
 
 # ------------------------------------------------------------------------ run
 def run(
-    players: list[Player], client: YouTubeClient | None = None, tag: str = "full"
+    players: list[Player],
+    client: YouTubeClient | None = None,
+    tag: str = "full",
+    transcript_fetcher: TranscriptFetcher | None = None,
 ) -> Path:
     cfg = load_config()["text_sources"]["youtube"]
     if not cfg.get("enabled", False):
@@ -509,6 +711,12 @@ def run(
     league_clubs = list(load_config()["league"].get("clubs", []))
     quota = int(cfg.get("max_texts_per_player", 40))
     min_words = int(cfg.get("min_words", 8))
+    # The config flag is the switch; `run()` resolves it to a real fetcher once,
+    # so the per-video loop never falls back to network calls during tests.
+    include_transcript = bool(cfg.get("include_transcript", False))
+    fetcher = transcript_fetcher
+    if include_transcript and fetcher is None:
+        fetcher = transcript_client
 
     sources = channel_sources(client)
     videos: list[VideoCandidate] = []
@@ -536,6 +744,8 @@ def run(
             quota,
             min_words,
             counters,
+            include_transcript=include_transcript,
+            transcript_fetcher=fetcher,
         )
         kept = sum(1 for record in records if record.unit_type == "comment")
         per_player[player.name] = kept
@@ -557,15 +767,34 @@ def run(
         "players_with_candidate_video": len(matches),
         "comments": sum(1 for r in all_records if r.unit_type == "comment"),
         "sentences": sum(1 for r in all_records if r.unit_type == "sentence"),
+        "transcript_sentences": counters.get("transcript_sentences_kept", 0),
         "requests": client.network_requests,
         "quota_units": client.quota_units,
         "cache_hits": client.cache_hits,
         "comments_disabled_videos": counters.get("comments_disabled", 0),
         "video_errors": counters.get("video_errors", 0),
+        "transcript": {
+            # `requested` is the config flag; the rest are outcomes. A run with
+            # `requested: false` must report zero segments rather than a silent
+            # guess that transcripts were simply unavailable.
+            "requested": include_transcript,
+            "videos_with_transcript": counters.get("transcript_videos", 0),
+            "sentences_kept": counters.get("transcript_sentences_kept", 0),
+            # Every other `transcript_*` counter is an unavailability reason.
+            # `transcript_sentences_kept` is an outcome, so it is excluded here
+            # instead of being listed as if the video had no captions.
+            "unavailable": {
+                key.removeprefix("transcript_"): value
+                for key, value in sorted(counters.items())
+                if key.startswith("transcript_")
+                and key not in {"transcript_videos", "transcript_sentences_kept"}
+            },
+        },
         "filters": {
             "comments_examined": counters.get("comments_examined", 0),
             "comments_kept": sum(1 for r in all_records if r.unit_type == "comment"),
             "sentences_kept": sum(1 for r in all_records if r.unit_type == "sentence"),
+            "transcript_sentences_kept": counters.get("transcript_sentences_kept", 0),
             "dropped": {
                 key.removeprefix("dropped_"): value
                 for key, value in sorted(counters.items())
