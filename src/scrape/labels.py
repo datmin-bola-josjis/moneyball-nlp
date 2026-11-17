@@ -52,6 +52,13 @@ EVAL_LINK_TRUE = frozenset({"y", "yes", "1", "true"})
 EVAL_LINK_FALSE = frozenset({"n", "no", "0", "false"})
 SENTIMENT_LABELS = frozenset({"positive", "neutral", "negative"})
 
+# Display names only; never used to read a cell.
+_COLUMN_TITLES = {
+    "relevant": "relevant",
+    "manual_link_ok": "linking",
+    "manual_sentiment": "sentiment",
+}
+
 
 @dataclass(frozen=True)
 class Problem:
@@ -70,6 +77,9 @@ class SheetStatus:
     exists: bool
     total: int = 0
     complete_rows: int = 0  # rows where every label column is usable
+    # Which columns carry labels. Explicit rather than inferred from `name`, so
+    # renaming a sheet cannot change how its progress is rendered.
+    label_columns: tuple[str, ...] = ("relevant",)
     columns: dict[str, int] = field(default_factory=dict)  # column -> usable labels
     per_slot: dict[str, int] = field(default_factory=dict)
     problems: list[Problem] = field(default_factory=list)
@@ -88,8 +98,24 @@ class SheetStatus:
 
 
 def _read_rows(path: Path) -> list[dict[str, str]]:
-    with path.open(encoding="utf-8", newline="") as fh:
-        return list(csv.DictReader(fh))
+    """Read a sheet, tolerating the encodings a spreadsheet export produces.
+
+    Annotators will edit these in Excel/LibreOffice, and "CSV" from Excel on
+    Windows is cp1252, not UTF-8. A `UnicodeDecodeError` traceback would look
+    like the tool is broken when the file simply needs re-saving, so fall back
+    and say so rather than crash. `utf-8-sig` also strips the BOM Excel writes,
+    which would otherwise turn the first column name into "\ufeffrelevant" and
+    silently hide every label in that column.
+    """
+    for encoding in ("utf-8-sig", "cp1252", "latin-1"):
+        try:
+            with path.open(encoding=encoding, newline="") as fh:
+                return list(csv.DictReader(fh))
+        except UnicodeDecodeError:
+            continue
+    raise SystemExit(
+        f"cannot decode {path}: re-save it as UTF-8 CSV. Nothing was counted."
+    )
 
 
 def _cell(row: dict[str, str], column: str) -> str:
@@ -101,16 +127,38 @@ def _classify(value: str, accepted: frozenset[str]) -> bool:
     return value.lower() in accepted
 
 
+def _missing_column(rows: list[dict[str, str]], column: str, path: Path) -> Problem:
+    """A renamed/absent label column is a file problem, not an empty sheet.
+
+    Reading it as all-blank would report "0/100, ok" for a sheet that can never
+    reach 100, and the report would look exactly like a team that has not started.
+    `analyze.score_eval_sheet` raises KeyError on a missing column, so flagging it
+    here also keeps this tool consistent with the scorer.
+    """
+    seen = ", ".join(sorted(rows[0].keys())) if rows else "(no header)"
+    return Problem(
+        row=0,
+        column=column,
+        value="",
+        reason=f"column not found in {path.name}; found: {seen}",
+    )
+
+
 def check_relevance_sheet(
     name: str, path: Path = REVIEW_REDDIT, column: str = "relevant"
 ) -> SheetStatus:
     """Progress for a relevance sheet (`review_relevance*.csv`)."""
-    status = SheetStatus(name=name, path=path, exists=path.exists())
+    status = SheetStatus(
+        name=name, path=path, exists=path.exists(), label_columns=(column,)
+    )
     if not status.exists:
         return status
 
     rows = _read_rows(path)
     status.total = len(rows)
+    if rows and column not in rows[0]:
+        status.problems.append(_missing_column(rows, column, path))
+        return status
     usable = 0
     complete = 0
     for position, row in enumerate(rows, start=1):
@@ -136,12 +184,24 @@ def check_relevance_sheet(
 
 def check_eval_sheet(name: str, path: Path = EVAL_SHEET) -> SheetStatus:
     """Progress for `eval_linking_sentiment.csv`, which has two label columns."""
-    status = SheetStatus(name=name, path=path, exists=path.exists())
+    status = SheetStatus(
+        name=name,
+        path=path,
+        exists=path.exists(),
+        label_columns=("manual_link_ok", "manual_sentiment"),
+    )
     if not status.exists:
         return status
 
     rows = _read_rows(path)
     status.total = len(rows)
+    required = status.label_columns
+    if rows:
+        for column in required:
+            if column not in rows[0]:
+                status.problems.append(_missing_column(rows, column, path))
+        if status.problems:
+            return status
     link_ok = 0
     sentiment_ok = 0
     slots: dict[str, int] = {}
@@ -215,13 +275,14 @@ def render(statuses: list[SheetStatus]) -> str:
         if not status.exists:
             lines.append(f"  {status.name:<26} MISSING  {status.path}")
             continue
-        if status.name.startswith("Eval"):
-            detail = (
-                f"linking {status.filled('manual_link_ok')}/{status.total}"
-                f", sentiment {status.filled('manual_sentiment')}/{status.total}"
+        if len(status.label_columns) > 1:
+            detail = ", ".join(
+                f"{_COLUMN_TITLES.get(column, column)} "
+                f"{status.filled(column)}/{status.total}"
+                for column in status.label_columns
             )
         else:
-            detail = f"{status.filled('relevant')}/{status.total}"
+            detail = f"{status.filled(status.label_columns[0])}/{status.total}"
         state = "ok" if status.is_clean else f"{len(status.problems)} bad cell(s)"
         lines.append(f"  {status.name:<26} {detail:<34} [{state}]")
         if status.per_slot:

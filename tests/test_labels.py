@@ -223,3 +223,73 @@ def test_report_lists_at_most_ten_problems(tmp_path: Path) -> None:
 
     assert len(status.problems) == 15
     assert "... and 5 more" in text
+
+
+# ------------------------------------------------------- reviewer concerns
+def test_renamed_label_column_is_a_problem_not_a_blank_sheet(tmp_path: Path) -> None:
+    """A missing column must not read as "0/100, ok".
+
+    That report is indistinguishable from a team that has not started, and
+    `analyze.score_eval_sheet` raises KeyError on the same file, so treating it
+    as blank would make this tool disagree with the scorer.
+    """
+    path = tmp_path / "review.csv"
+    path.write_text("text_id,player_id,Relevan\nt1,p1,y\n", encoding="utf-8")
+
+    status = labels.check_relevance_sheet("Reddit", path)
+
+    assert status.filled("relevant") == 0
+    assert len(status.problems) == 1
+    assert "column not found" in status.problems[0].reason
+    assert not status.is_clean
+
+
+def test_eval_sheet_missing_a_label_column_is_reported(tmp_path: Path) -> None:
+    path = tmp_path / "eval.csv"
+    path.write_text("eval_idx,annotator_slot,text_id\n1,A,t1\n", encoding="utf-8")
+
+    status = labels.check_eval_sheet("Eval", path)
+
+    assert not status.is_clean
+    assert len(status.problems) == 2, "both label columns are absent"
+
+
+def test_cp1252_sheet_is_read_instead_of_crashing(tmp_path: Path) -> None:
+    """Excel on Windows writes cp1252, not UTF-8. A crash would look like a bug."""
+    path = tmp_path / "review.csv"
+    # 0x92 is a right single quote in cp1252 and invalid as standalone UTF-8.
+    path.write_bytes(
+        b"text_id,player_id,text_clean,relevant\n"
+        b"t1,p1,Andr\xe9 played well,y\n"
+    )
+
+    status = labels.check_relevance_sheet("Reddit", path)
+
+    assert status.filled("relevant") == 1
+    assert status.is_clean
+
+
+def test_utf8_bom_header_does_not_hide_labels(tmp_path: Path) -> None:
+    """Excel writes a BOM; without utf-8-sig the column name becomes "\\ufeffrelevant"."""
+    path = tmp_path / "review.csv"
+    path.write_text("text_id,relevant\nt1,y\nt2,n\n", encoding="utf-8-sig")
+
+    status = labels.check_relevance_sheet("Reddit", path)
+
+    assert status.filled("relevant") == 2
+    assert status.is_clean
+
+
+def test_render_uses_the_declared_columns_not_the_sheet_name(tmp_path: Path) -> None:
+    """Renaming a sheet must not change how its progress is rendered."""
+    path = write_sheet(
+        tmp_path / "eval.csv",
+        EVAL_FIELDS,
+        [{"annotator_slot": "A", "manual_link_ok": "y", "manual_sentiment": "positive"}],
+    )
+    status = labels.check_eval_sheet("Anything at all", path)
+
+    text = labels.render([status])
+
+    assert "linking 1/1" in text
+    assert "sentiment 1/1" in text
