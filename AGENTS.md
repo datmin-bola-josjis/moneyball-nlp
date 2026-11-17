@@ -31,7 +31,7 @@ Yang sudah jalan (semua ini ada di `main`):
 | Cross-source dedupe (Tahap C) | `make dedupe` (`src/link/dedupe.py`) ada |
 | Batas kolom numerik | `check_numeric_cap()` di `src/validate_config.py` + test batas & negatif |
 
-Yang belum ada di repo: `src/link/resolve.py` (entity linking), `src/nlp/analyze.py`, `src/score/rank.py`, dan `src/viz/report.py`; `src/score/` baru berisi metrik numerik. Modul artikel belum ada (`output.dashboard: true` dan `output.numeric_cap` sudah ada di config, tapi belum ada kode yang membangkitkan dashboard). Transkrip YouTube juga belum — lihat [`docs/tahap-b-youtube.md`](docs/tahap-b-youtube.md). `make pipeline` masih berhenti di `link`.
+Yang belum ada di repo: `src/link/resolve.py` (entity linking), `src/nlp/analyze.py`, `src/score/rank.py`, dan `src/viz/report.py`; `src/score/` baru berisi metrik numerik. `output.dashboard: true` dan `output.numeric_cap` sudah ada di config, tapi belum ada kode yang membangkitkan dashboard. Transkrip YouTube (`src/scrape/youtube.py`) dan artikel (`src/scrape/article.py`) sudah ada kodenya tetapi transkrip belum pernah dijalankan penuh dan artikel masih `enabled: false` — lihat [`docs/tahap-b-youtube.md`](docs/tahap-b-youtube.md). `make pipeline` masih berhenti di `link`.
 
 Rincian status per area ada di [`README.md`](README.md) bagian Development Status.
 
@@ -64,7 +64,7 @@ make test       # pytest saja
 make pipeline   # target akhir: data mentah -> output (BELUM BISA JALAN, lihat status)
 ```
 
-Target per tahap yang **sudah punya kode**: `fetch-players`, `population`, `lock-sample`, `metrics`, `scrape`, `scrape-arctic`, `scrape-youtube`, `cleaning`, `scrape-pilot`, `scrape-verify`, `review`, `review-score`, `dedupe`.
+Target per tahap yang **sudah punya kode**: `fetch-players`, `population`, `lock-sample`, `metrics`, `scrape`, `scrape-arctic`, `scrape-youtube`, `scrape-articles`, `cleaning`, `scrape-pilot`, `scrape-verify`, `review`, `review-score`, `labels-status`, `dedupe`.
 
 Target per tahap yang **belum punya modul** (akan gagal `ModuleNotFoundError`): `link` → `src.link.resolve`, `nlp` → `src.nlp.analyze`, `score` → `src.score.rank`, `viz` → `src.viz.report`.
 
@@ -76,7 +76,9 @@ Python 3.10+ secara teori; terverifikasi jalan di **3.14.8**.
 
 Yang benar-benar terpasang dan dipakai: `pandas`, `pyarrow`, `PyYAML`, `requests`, `python-dotenv`, `pytest`.
 
-Yang **dideklarasikan di `requirements.txt` tapi belum pernah diimpor kode**: `soccerdata`, `PRAW`, `youtube-transcript-api`, `google-api-python-client`, `trafilatura`, `rapidfuzz`, `spacy`, `vaderSentiment`, `scikit-learn`, `matplotlib`, `plotly`.
+Yang **dideklarasikan di `requirements.txt` tapi belum pernah diimpor kode**: `soccerdata`, `PRAW`, `google-api-python-client`, `rapidfuzz`, `spacy`, `scikit-learn`.
+
+Sudah dipakai kode: `youtube-transcript-api` (transkrip YouTube, impor *lazy* di `src/scrape/youtube.py`) dan `trafilatura` (artikel, impor *lazy* di `src/scrape/article.py`). Keduanya diimpor di dalam fungsi, bukan di tingkat modul, supaya jalur Reddit tetap jalan tanpa paket itu terpasang.
 
 Catatan penting: `requirements.txt` memaku `pandas>=2.2,<3.0`, sedangkan lingkungan yang terverifikasi memakai pandas 3.1.1. `make setup` di mesin baru akan memasang 2.3.x, dan suite belum diuji ulang di versi itu. Jangan install tanpa persetujuan eksplisit.
 

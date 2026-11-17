@@ -250,10 +250,10 @@ The text sample covers 70 players rather than the whole league, so findings draw
 | Test suite | **Implemented** | `make test`; 306 passed |
 | Reddit retrieval (three providers) | **Implemented**, no full run yet | Code, tests and a 20-player pilot are written; the relevance gate has not been passed |
 | Subreddit name verification | **Partial** | `make scrape-verify` needs OAuth credentials that do not exist yet |
-| Relevance review tooling | **Partial** | `make review` and `make review-score` exist; no labels have been collected |
+| Relevance review tooling | **Partial** | `make review`, `make review-score` and `make labels-status` exist; no labels have been collected yet |
 | Arctic Shift volume measurement | **Partial** | `measure_volume.py` plus 11 tests; a probe, not wired into any `make` target |
-| YouTube retrieval | **Partial** | `make scrape-youtube` and `make cleaning` implemented; transcripts and human relevance gate pending |
-| Article retrieval | **Not started** | Config only, disabled |
+| YouTube retrieval | **Partial** | `make scrape-youtube` and `make cleaning` implemented; transcript collector coded but never run in full; human relevance gate pending |
+| Article retrieval | **Partial**, disabled | `make scrape-articles` (`src/scrape/article.py`) implemented and tested; `text_sources.article.enabled: false` until the team decides |
 | Entity linking (Stage C) | **Partial** | `make dedupe` (`src/link/dedupe.py`) implemented; `src/link/resolve.py` not started |
 | Sentiment and aspects (Stage D) | **Not started** | `src/nlp/` is an empty package |
 | Text quality score and flags (Stage E) | **Not started** | Only the numeric half of `src/score/` exists |
