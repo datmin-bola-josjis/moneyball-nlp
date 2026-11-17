@@ -293,3 +293,31 @@ def test_render_uses_the_declared_columns_not_the_sheet_name(tmp_path: Path) -> 
 
     assert "linking 1/1" in text
     assert "sentiment 1/1" in text
+
+
+def test_missing_sheets_are_never_reported_as_clean(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An empty workspace must not print "every sheet is labelled and clean".
+
+    The previous version filtered missing sheets out of the remaining-rows count,
+    so three absent files produced a clean bill of health - the single most
+    misleading line this tool could emit, and the exact opposite of what an
+    unlabeled gate means.
+    """
+    code = labels.main(
+        [
+            "--reddit",
+            str(tmp_path / "a.csv"),
+            "--youtube",
+            str(tmp_path / "b.csv"),
+            "--eval",
+            str(tmp_path / "c.csv"),
+        ]
+    )
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert "clean" not in out
+    assert "3 sheet(s) missing" in out
+    assert "Nothing is labelled" in out

@@ -294,9 +294,23 @@ def render(statuses: list[SheetStatus]) -> str:
         if len(status.problems) > 10:
             lines.append(f"    ... and {len(status.problems) - 10} more")
 
-    blanks = [status.remaining for status in statuses if status.exists]
     lines.append("")
-    if any(blanks):
+    missing = [status.name for status in statuses if not status.exists]
+    remaining = sum(status.remaining for status in statuses if status.exists)
+    malformed = not all(status.is_clean for status in statuses)
+    if missing:
+        # Absence is not cleanliness. Filtering missing sheets out of the count
+        # made an empty workspace print "every sheet is labelled and clean",
+        # which is the most misleading line this tool could emit.
+        lines.append(
+            f"Status: {len(missing)} sheet(s) missing ({', '.join(missing)}); "
+            "run `make review` first. Nothing is labelled."
+        )
+    elif malformed:
+        lines.append(
+            "Status: some cells hold values the scorer cannot use - fix those before scoring."
+        )
+    elif remaining:
         lines.append(
             "Status: still indicative. Labels are a human judgement; nothing here fills them."
         )
