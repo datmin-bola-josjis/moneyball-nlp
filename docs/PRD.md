@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| **Versi** | 2.0 (scope 1 minggu, 4 orang) |
-| **Tanggal** | 11 November 2026 |
-| **Status** | Draft untuk dikunci di Hari 1 |
+| **Versi** | 2.1 (scope 1 minggu, 4 orang — diselaraskan dengan implementasi Tahap A–B) |
+| **Tanggal** | 13 November 2026 |
+| **Status** | Diselaraskan (keputusan output & cap numerik disepakati internal, belum dikonfirmasi dosen) |
 | **Konteks** | Tugas besar Data Mining, Semester 5 |
 | **Prototipe** | Premier League 2025/26 — satu liga, satu musim |
 | **Dokumen terkait** | [`PLAN-1WEEK.md`](PLAN-1WEEK.md) (peran & jadwal), [`config.yaml`](../config/config.yaml) (parameter liga), [`decisions.md`](decisions.md) (catatan ambang) |
@@ -33,7 +33,7 @@ Dataset dominan string dan analisis utama berbasis sentiment/NLP, sesuai penekan
 
 **Utama:**
 
-> Apakah sinyal kualitas dari teks (sentiment per aspek dan playstyle) bisa mengidentifikasi pemain berharga murah yang performanya terbukti di angka?
+> Apakah sinyal kualitas dari teks (sentiment per aspek) bisa mengidentifikasi pemain berharga murah yang performanya terbukti di angka? *(Analisis playstyle ditunda ke future work, lihat §4.)*
 
 **Pendukung:**
 
@@ -77,14 +77,14 @@ Kolom **Tier** menandai apa yang dikerjakan dalam 1 minggu: `W` wajib, `B` bonus
 
 | Tier | Jenis | Sumber | Isi | Peran |
 |---|---|---|---|---|
-| W | Populasi | Transfermarkt, FBref/FotMob via `soccerdata` | Roster, posisi, umur, klub, menit main | Daftar pemain target |
-| W | Teks (utama) | r/soccer, r/PremierLeague, dan 20 subreddit klub Premier League | Komentar post-match, player ratings, thread diskusi | Sentiment per aspek |
+| W | Populasi | **FotMob** (`leagueseasondeepstats` & `playerData`, via `src/population/`) | Roster, posisi, umur, klub, menit main | Daftar pemain target |
+| W | Teks (utama) | r/soccer, r/PremierLeague, dan 20 subreddit klub Premier League *(diambil via arsip Arctic Shift karena OAuth Reddit tidak tersedia dalam tenggat 1 minggu; lihat `docs/decisions.md`)* | Komentar post-match, player ratings, thread diskusi | Sentiment per aspek |
 | W | Teks (utama) | YouTube channel whitelist | Komentar; transkrip jika waktu memungkinkan | Sentiment per aspek, bukti spesifik |
 | B | Teks (pelengkap) | Artikel scouting/analisis (whitelist 5–10 situs) | Isi artikel | Penilaian mendalam, bukti spesifik |
-| — | Teks (tambahan) | X/Twitter | Tweet | Dilewati pada fase ini |
-| B | Kategorikal | SoFIFA | Playstyles, roles, posisi, ID pemain | Profil gaya main |
-| W | Numerik (harga) | Transfermarkt | Market value, kontrak | Biaya |
-| W | Numerik (validator) | FotMob, FBref/Understat | Rating per match, stat per 90, xG, xA | Validasi performa |
+| — | Teks (tambahan) | X/Twitter | Tweet | Dilewati (final, lihat §16) |
+| — | Kategorikal | SoFIFA | Playstyles, roles | Ditunda ke future work (tidak diambil pada prototipe 1 minggu; lihat §4) |
+| W | Numerik (harga) | **FotMob** (`playerData.marketValues`) — *menggantikan Transfermarkt yang memblokir akses HTTP 405 di semua path* | Market value | Biaya |
+| W | Numerik (validator) | **FotMob** (`rating.json` & statistik per-90 `leagueseasondeepstats`) | Rating musim, stat per 90, xG, xA | Validasi performa |
 
 **Catatan penting**
 
@@ -97,8 +97,8 @@ Kolom **Tier** menandai apa yang dikerjakan dalam 1 minggu: `W` wajib, `B` bonus
 
 ### Tahap A — Populasi
 
-1. Ambil roster 20 klub Premier League 2025/26 dari Transfermarkt/FBref/FotMob (via `soccerdata`).
-2. Buat `player_id` internal sebagai satu-satunya kunci join. Simpan alias: dengan/tanpa aksen, nama pendek, julukan.
+1. Ambil roster 20 klub Premier League 2025/26 dari **FotMob** (`leagueseasondeepstats` & `playerData`, lihat `docs/decisions.md` 2026-11-12).
+2. Buat `player_id` internal (`fotmob_<id>`) sebagai satu-satunya kunci join. Simpan alias: dengan/tanpa aksen, nama pendek, julukan, serta alias marga majemuk.
 3. Filter wajib: menit main ≥ 900.
 4. Filter harga: **mati**, teks menjadi penentu penuh. Persentil market value dihitung setelah skor teks jadi, bukan sebagai prasyarat masuk populasi.
 5. **[1 minggu] Sampling pemain untuk jalur teks.** Populasi angka tetap utuh (murah, tidak perlu sampling). Teks dikerjakan untuk ±60–80 pemain hasil sampling berlapis, supaya sampel tidak hanya berisi bintang:
@@ -137,7 +137,7 @@ Kolom **Tier** menandai apa yang dikerjakan dalam 1 minggu: `W` wajib, `B` bonus
 1. **Skor Kualitas Teks** per pemain: rata-rata sentiment aspek yang relevan untuk posisinya, tertimbang kepercayaan (jumlah teks, bobot sumber). Rentang −1 sampai 1.
 2. Pemain di bawah batas minimal teks diberi label bertingkat — `bukti cukup` / `bukti terbatas` / `bukti tidak cukup` — dan tidak dinilai paksa.
 3. **Kandidat awal:** skor kualitas teks tinggi + market value rendah.
-4. **Validasi angka:** rating per posisi (z-score, tertimbang menit) dan stat per 90 harus di atas median posisinya.
+4. **Validasi angka:** rating per posisi dari FotMob `rating.json` (setelah filter `minutes ≥ 900`, diubah ke z-score di dalam kelompok posisi **tanpa pembobotan menit**, `rating_pos_zscore`) harus di atas median posisinya (`rating_above_median == True`). Pemain yang tidak tercantum di leaderboard `rating.json` (52/340 pemain; 10/70 sampel) disimpan sebagai `<NA>` nullable di `rating_above_median` ("tidak tervalidasi rating", bukan `False`) dan tidak dicampur dengan `careerHistory`. Stat per-90 disimpan di tabel validator internal `metrics_numeric.parquet`, terpisah dari `player_summary.parquet` untuk menjaga batas kolom numerik ≤ 35%.
 5. **Hidden gem flag** dihitung sebagai turunan murah dari tiga persentil yang sudah ada (kualitas, buzz, harga). Bila waktu tidak cukup, dilaporkan sebagai narasi di laporan, bukan kolom dataset.
 6. Filter kebutuhan klub (cocokkan playstyle/role, mis. "deep-lying playmaker") **ditunda** ke future work.
 
@@ -147,48 +147,44 @@ Lihat §10. Laporan ditulis mengikuti alur CRISP-DM (rincian di [`PLAN-1WEEK.md`
 
 ## 8. Skema dataset
 
-**players**
+**players (`players.parquet` & `text_sample.parquet`, 17 kolom aktual)**
 
-- `player_id`, `sofifa_id`, `transfermarkt_id`, `fotmob_id`
+- `player_id`, `fotmob_id` (diperlakukan sebagai identifier string, bukan fitur numerik)
 - `name_canonical`, `name_aliases` (list)
-- `position`, `position_group` (GK/DEF/MID/FWD), `club`, `league`, `nationality`, `birth_date`
-- `playstyles` (list, opsional), `roles` (list, opsional)
-- `in_text_sample` (bool) — menandai pemain yang masuk jalur teks
+- `position`, `position_group` (GK/DEF/MID/FWD), `club`, `league`, `season`, `nationality`, `birth_date`
+- `minutes`, `market_value_eur`, `market_value_date`, `in_text_sample` (bool), `price_quartile`, `stratum`
 
-**texts**
+**texts (`texts_deduped.parquet`, Tier 1 ≤ 20% kolom numerik — 17 kolom aktual, 1/17 = 5,9% numerik)**
 
-- `text_id`, `player_id`, `source` (reddit/youtube/article)
-- `text_raw`, `text_clean`, `language`
-- `created_at`, `url` / `thread_id`, `engagement` (opsional)
-- `unit_type` (comment/sentence/transcript_segment) — wajib, karena analisis berjalan di level kalimat
+- `text_id`, `player_id`, `source` (`reddit`/`youtube`), `unit_type` (`comment`/`sentence`)
+- `text_raw`, `text_clean`, `text_clean_hash`, `language`, `created_at`, `url`
+- `thread_id`, `subreddit`, `engagement` (1 kolom numerik opsional), `matched_alias`, `parent_text_id`, `channel`, `video_id`
 
-**text_analysis**
+**text_analysis (`text_analysis.parquet`, Tier 1 ≤ 20% kolom numerik — 11 kolom, 2/11 = 18,2% numerik)**
 
-- `text_id`, `player_id`, `sentiment_label`, `sentiment_score`
-- `aspect`, `aspect_sentiment`
-- `is_aspect_bearing` (bool) — kalimat tanpa kata kunci aspek
+- `text_id`, `player_id`, `source`, `unit_type`, `text_clean`, `matched_alias`
+- `sentiment_label`, `sentiment_score` (numerik), `aspect`, `aspect_sentiment` (numerik), `is_aspect_bearing` (bool, dihitung non-numerik)
 
-**metrics_numeric**
+**metrics_numeric (`metrics_numeric.parquet` — 32 kolom, tabel validator internal Tahap A/E, tidak ditampilkan mentah di halaman utama dashboard)**
 
-- `player_id`, `season`, `minutes`, `avg_rating`, `rating_std`
-- `xg_per90`, `xa_per90` (opsional), `market_value_eur`
+- `player_id`, `fotmob_id` (string), `season`, `minutes`, `avg_rating`, `rating_pos_zscore`, `rating_pos_percentile`, `rating_pos_rank`, `rating_above_median` (boolean nullable `<NA>`)
+- `goals`, `xg`, `xa`, `xg_per90`, `xa_per90`, `tackles_per90`, `interceptions_per90`, `accurate_pass_per90`, `saves_per90`, `market_value_eur`, `value_pos_percentile` (beserta 12 kolom identitas/sampel dari `players.parquet`)
 
-**player_summary**
+**player_summary (`player_summary.parquet` — Tier 2 ≤ 35% kolom numerik: tepat 19 kolom, 6 numerik = 31,6%, 13 non-numerik)**
 
-- `player_id`, `season`, `n_texts`, `evidence_level` (cukup/terbatas/tidak cukup)
-- `text_quality_score`, `top_aspects`, `buzz_volume`, `buzz_percentile`
-- `rating_pos_zscore`, `market_value_eur`, `value_percentile`
-- `undervalued_flag`, `hidden_gem_flag` (opsional), `overhyped_flag`
+- **6 kolom numerik wajib:** `n_texts`, `text_quality_score`, `buzz_percentile`, `market_value_eur`, `value_pos_percentile`, `rating_pos_zscore`
+- **13 kolom non-numerik (`bool` dan nullable `boolean` dihitung non-numerik):** `player_id`, `name_canonical`, `club`, `position_group`, `season`, `price_quartile`, `evidence_level` (`bukti cukup` / `bukti terbatas` / `bukti tidak cukup`), `dominant_sentiment`, `top_aspects`, `rating_above_median` (boolean nullable `<NA>`), `undervalued_flag` (`bool`), `hidden_gem_flag` (`bool`), `overhyped_flag` (`bool`)
+- Tidak boleh dipangkas menjadi 17 kolom (6/17 = 35,3% melebihi cap 35%). Statistik per-90 & metrik redundan (`minutes`, `buzz_volume`, `rating_pos_percentile`, dll.) tetap di `metrics_numeric.parquet`, tidak disalin ke `player_summary.parquet`.
 
 ## 9. Definisi inti
 
 | Istilah | Definisi |
 |---|---|
 | **Skor Kualitas Teks** | Rata-rata tertimbang sentiment aspek relevan posisi, rentang −1 sampai 1 |
-| **Buzz** | Jumlah teks valid per pemain, dinormalisasi terhadap total populasi |
-| **Performa (validator)** | Rating tertimbang menit, diubah ke z-score di dalam posisinya |
-| **Biaya** | Market value Transfermarkt |
-| **Undervalued** | Skor kualitas teks ≥ persentil 75 di posisinya, market value ≤ persentil 40, dan performa angka di atas median posisinya |
+| **Buzz** | Jumlah teks valid per pemain (`n_texts`) dan persentilnya (`buzz_percentile`) di dalam sampel |
+| **Performa (validator)** | Rating FotMob (`rating.json`, setelah filter `minutes ≥ 900`), diubah ke z-score di dalam kelompok posisinya **tanpa bobot menit** (`rating_pos_zscore`) |
+| **Biaya** | Market value FotMob (`playerData.marketValues`, EUR) |
+| **Undervalued** | Skor kualitas teks ≥ persentil 75 di posisinya, market value ≤ persentil 40, dan performa angka di atas median posisinya (`rating_above_median == True`) |
 | **Hidden gem** | Undervalued dengan buzz ≤ persentil 40 |
 | **Overhyped** *(sekunder)* | Buzz ≥ persentil 75 dan performa di bawah median posisinya |
 
@@ -201,14 +197,14 @@ Lihat §10. Laporan ditulis mengikuti alur CRISP-DM (rincian di [`PLAN-1WEEK.md`
 
 ## 10. Output
 
-- **[1 minggu]** Tabel top 10–20 kandidat undervalued: skor kualitas teks, market value, rating tervalidasi, aspek unggulan, `evidence_level`.
+- **[1 minggu] Demo dashboard ("Text-First, Number-Second"):** `output.dashboard: true` di `config/config.yaml` (stack teknologi ditetapkan di Stage 0) — berfokus pada distribusi sentimen & 8 aspek (`finishing`, `passing`, `defending`, `stamina`, `dribbling`, `pace`, `positioning`, `mentality`), tabel kandidat dengan `evidence_level` + `top_aspects` (pemain `bukti tidak cukup` **dilarang masuk** tabel kandidat/peringkat utama sesuai aturan 8; pemain `bukti terbatas` bertanda jelas), panel kutipan komentar asli (`text_clean`), scatter kualitas teks vs harga, dan badge validator (`rating_pos_zscore` / `rating_above_median` dengan label `"tidak tervalidasi rating"` untuk `<NA>`) tanpa memajang statistik per-90 mentah di halaman utama.
+- **[1 minggu]** Tabel top 10–20 kandidat undervalued: skor kualitas teks, market value, rating tervalidasi (`"tidak tervalidasi rating"` jika `<NA>`), aspek unggulan, `evidence_level` (`bukti tidak cukup` dikeluarkan).
 - **[1 minggu]** Scatter plot: skor kualitas teks vs market value, warna = rating z-score, ukuran = buzz.
 - **[1 minggu]** Heatmap sentiment aspek per posisi.
 - **[1 minggu]** Analisis pendukung: korelasi buzz vs market value, daftar overhyped (avoid list).
-- **[1 minggu]** Laporan temuan dan keterbatasan.
-- Bonus, bukan syarat: kolom playstyle pada tabel kandidat, dashboard Streamlit (tabel filter per posisi, scatter, detail per pemain).
+- **[1 minggu]** Laporan temuan, evaluasi (relevansi retrieval, akurasi entity linking, akurasi sentiment, Cohen's κ), dan keterbatasan.
 
-**Batas kelayakan minimum di akhir minggu:** dataset teks bersih, bukti entity linking dan sentiment dievaluasi manual, satu tabel kandidat dengan validasi angka, dan 3–4 visual. Kalau dashboard belum siap di Hari 6, cukup notebook dengan visual rapi.
+**Batas kelayakan minimum di akhir minggu:** dataset teks bersih, bukti entity linking dan sentiment dievaluasi manual, satu tabel kandidat dengan validasi angka, 3–4 visual, dan demo dashboard yang berjalan.
 
 ## 11. Metrik keberhasilan
 
@@ -237,7 +233,7 @@ Seluruh angka target pada tabel ini adalah usulan awal; kalau di Hari 4 ternyata
 | Akses Reddit macet (persetujuan API lama) | Keputusan di Hari 1; jika gagal, YouTube + artikel jadi sumber utama dan laporan menyebutnya |
 | Market value Premier League tinggi dan semua pemain sudah diawasi | Pakai persentil di dalam liga per posisi, bukan batas harga absolut; framing sebagai *underrated* |
 | Pemain di sampel teks sedikit dibicarakan | Buzz rendah jadi fitur; label `bukti terbatas` / `bukti tidak cukup`; prioritaskan transkrip dan subreddit klub |
-| Bias volume (bintang mendominasi) | Kuota teks per pemain per sumber; normalisasi buzz terhadap populasi; sampling berlapis per kuartil harga |
+| Bias volume (bintang mendominasi) | Kuota teks per pemain per sumber; normalisasi/persentil buzz di dalam sampel 70 pemain; sampling berlapis per kuartil harga |
 | Salah sasaran (nama ambigu, thread multi-pemain) | Pecah per kalimat sebelum linking; disambiguasi konteks klub; pilot 20 pemain sebelum scraping penuh |
 | Sarkasme dan slang bola merusak sentiment | Sampel evaluasi manual, catat contoh kegagalan di laporan, tambah kamus slang bila perlu |
 | Sentiment mengikuti hasil laga terakhir | Agregasi per periode, bukan per laga; laporkan distribusi bukan hanya rata-rata |
@@ -273,16 +269,17 @@ Jadwal lengkap dengan pembagian peran ada di [`PLAN-1WEEK.md`](PLAN-1WEEK.md).
 
 ## 15. Stack
 
-Python, pandas, `requests`/Playwright, `soccerdata`, PRAW, YouTube Data API v3, `youtube-transcript-api`, `trafilatura`, `rapidfuzz`, spaCy, Hugging Face Transformers (termasuk VADER), scikit-learn, matplotlib/plotly, SQLite/Parquet. Streamlit opsional.
+Python, pandas, `requests`, YouTube Data API v3, `rapidfuzz`, VADER (`vaderSentiment`), matplotlib/plotly, Parquet (`pyarrow`). Stack demo dashboard (mis. Streamlit atau web app statis/ringan) ditetapkan di Stage 0 sebelum implementasi Tahap F.
 
 Prinsip: satu config untuk liga dan musim, cache di disk, data mentah terpisah dari data bersih.
 
-## 16. Keputusan terbuka
+## 16. Keputusan yang telah ditutup & catatan status dosen
 
-1. **Porsi kolom numerik** yang diizinkan dosen agar dataset tetap "dominan string" — perlu ditanyakan ke dosen. Sampai ada jawaban, kolom numerik dijaga minimum: menit main, market value, rating, xG/xA per 90.
-2. **Akses X/Twitter**: dicoba atau dilewati? Default: **dilewati**, Reddit dan YouTube jadi sumber utama.
-
-*Sudah diputuskan:* liga = Premier League 2025/26, musim = 2025/26, bahasa = Inggris saja, filter harga di tahap populasi = mati.
+1. **Batas porsi kolom numerik ("dominan string"):** *Disepakati internal User/Tim (atas usulan Argon, 2026-11-13); belum dikonfirmasi dosen.* `fotmob_id` = string identifier; Tier 1 korpus teks (`texts_deduped` 1/17 = 5,9%, `text_analysis` 2/11 = 18,2%) ≤ 20% numerik; Tier 2 `player_summary` ≤ 35% numerik (tepat 19 kolom: 6 numerik = 31,6%, 13 non-numerik incl. boolean); `metrics_numeric.parquet` diisolasi sebagai validator internal Tahap A/E.
+2. **Akses X/Twitter:** *Dilewati (final).* Tidak dicoba, di luar scope 1 minggu; Reddit (via Arctic Shift) dan YouTube menjadi sumber teks utama.
+3. **Bentuk output akhir:** *Disepakati internal User/Tim (2026-11-13); belum dikonfirmasi dosen.* Demo dashboard ("Text-First, Number-Second") beserta laporan evaluasi CRISP-DM ringkas (`output.dashboard: true`, stack ditetapkan di Stage 0).
+4. **Sumber data populasi, harga, dan rating:** *FotMob* (`leagueseasondeepstats`, `playerData.marketValues`, `rating.json`), menggantikan Transfermarkt (HTTP 405).
+5. **Parameter terkunci:** liga = Premier League 2025/26, musim = 2025/26, bahasa = Inggris saja, filter harga di tahap populasi = mati (`price_filter_enabled: false`), sampling berstrata terkunci (`seed = 20252026`).
 
 ## 17. Panduan untuk AI agent
 
@@ -311,3 +308,4 @@ Akan dipindahkan ke `AGENTS.md` di root repo pada Hari 1, setelah struktur folde
 | 1.0 | Draf awal: multi-liga, 3–4 sumber teks, ±200 pemain, aspect-based sentiment berbasis model, BERTopic, filter kebutuhan klub |
 | 1.1 | Liga dikunci sebagai parameter; prototipe dipersempit ke satu liga; X ditandai opsional |
 | 2.0 | Liga = Premier League 2025/26. Scope dipangkas untuk 4 orang × 1 minggu: 2 sumber teks utama, populasi teks ±60–80 pemain (sampling berlapis), sentiment model siap pakai + aspek berbasis kamus, batas kecukupan teks bertingkat, BERTopic dan filter playstyle ditunda |
+| 2.1 | Penyelarasan 2026-11-13: sumber harga & rating FotMob (menggantikan Transfermarkt), z-score rating per posisi tanpa bobot menit + `<NA>` nullable untuk pemain tanpa rating, Dual-Tier Numeric Cap (≤ 20% korpus teks, ≤ 35% `player_summary`), output demo dashboard ("Text-First, Number-Second"), dan X/Twitter dilewati final |

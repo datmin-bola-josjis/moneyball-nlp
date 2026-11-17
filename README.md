@@ -264,11 +264,11 @@ The text sample covers 70 players rather than the whole league, so findings draw
 
 ## Open Decisions
 
-Three items need a human decision, none of them settled:
+Three items previously listed as open have internal team decisions recorded on 2026-11-13 (`docs/decisions.md`); the first two still await final confirmation from the course lecturer:
 
-1. The output format the course requires: written report, presentation, or working dashboard.
-2. How many numeric columns are allowed while the dataset stays predominantly string-based.
-3. Whether X/Twitter is attempted. The current default is to skip it.
+1. **Output format:** Internal decision is a **demo dashboard** ("Text-First, Number-Second") alongside a concise CRISP-DM evaluation report (`output.dashboard: true` in `config/config.yaml`; Stage F implementation not started yet, stack chosen before Stage F).
+2. **Predominantly string numeric column cap:** Internal Dual-Tier Cap proposal (Tier 1 text corpus ≤ 20% numeric; Tier 2 `player_summary` 19 columns with 6 numeric = 31.6% ≤ 35%, booleans counted as non-numeric; `metrics_numeric.parquet` isolated as an internal Stage A/E validator table).
+3. **X/Twitter:** **Skipped (final)** — not attempted, out of the one-week scope.
 
 ---
 

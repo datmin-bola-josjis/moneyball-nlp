@@ -1,6 +1,6 @@
 # Tabel Cleaning YouTube (Tahap B)
 
-Run: `full-20261113-025149`. Angka diambil dari `summary.json` run itu, dihitung oleh
+Run: `full-20261113-150050`. Angka diambil dari `summary.json` run itu, dihitung oleh
 `src/scrape/cleaning.py` dari penghitung yang ada di
 `src/scrape/youtube.py::records_from_comment` — bukan ditulis manual.
 
@@ -8,17 +8,17 @@ Run: `full-20261113-025149`. Angka diambil dari `summary.json` run itu, dihitung
 
 | Filter | Dibuang | Porsi dari diperiksa | Alasan |
 |---|---|---|---|
-| Terlalu pendek | 13170 | 37,9% | kurang dari `min_words` kata (config) |
-| Bukan bahasa Inggris | 227 | 0,7% | deteksi bahasa |
+| Terlalu pendek | 13305 | 36,3% | kurang dari `min_words` kata (config) |
+| Bukan bahasa Inggris | 222 | 0,6% | deteksi bahasa |
 | Bot / spam | 0 | 0,0% | penanda bot |
 | Tanpa tanggal | 0 | 0,0% | `publishedAt` kosong atau tidak valid |
-| Di luar musim | 288 | 0,8% | di luar `league.season_start`..`season_end` |
-| Duplikat dalam satu pemain | 25 | 0,1% | `text_clean_hash` sudah dipakai |
-| Nama tidak teratasi | 19986 | 57,5% | aturan 17 / `AliasIndex` |
-| **Diperiksa** | **34750** | 100% | pasangan (pemain, komentar) |
-| **Lolos menjadi komentar** | **1054** | 3,0% | |
+| Di luar musim | 230 | 0,6% | di luar `league.season_start`..`season_end` |
+| Duplikat dalam satu pemain | 29 | 0,1% | `text_clean_hash` sudah dipakai |
+| Nama tidak teratasi | 21920 | 59,8% | aturan 17 / `AliasIndex` |
+| **Diperiksa** | **36657** | 100% | pasangan (pemain, komentar) |
+| **Lolos menjadi komentar** | **951** | 2,6% | |
 
-Kalimat yang lolos: **1105**.
+Kalimat yang lolos: **1010**.
 
 ## Kalimat
 
@@ -27,7 +27,7 @@ tidak membatalkan komentarnya.
 
 | Filter | Dibuang | Alasan |
 |---|---|---|
-| Nama tidak teratasi | 939 | aturan 17 / `AliasIndex` |
+| Nama tidak teratasi | 957 | aturan 17 / `AliasIndex` |
 
 ## Sebaran kanal
 
@@ -39,12 +39,12 @@ bias sumber.
 
 | Kanal | Video dalam musim | Komentar | Porsi komentar |
 |---|---|---|---|
-| Sky Sports Premier League | 2075 | 747 | 70,9% |
-| The Athletic FC | 317 | 144 | 13,7% |
-| Premier League | 1329 | 104 | 9,9% |
-| Tifo Football | 287 | 31 | 2,9% |
-| The Overlap | 973 | 28 | 2,7% |
-| **Total** | **4981** | **1054** | 100% |
+| Sky Sports Premier League | 2075 | 697 | 73,3% |
+| The Athletic FC | 317 | 126 | 13,2% |
+| The Overlap | 973 | 67 | 7,0% |
+| Premier League | 1329 | 33 | 3,5% |
+| Tifo Football | 287 | 28 | 2,9% |
+| **Total** | **4981** | **951** | 100% |
 
 ## Catatan cara membaca
 

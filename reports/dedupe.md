@@ -7,8 +7,8 @@ untuk dua file masukan yang disebut di sini, bukan untuk run lain.
 
 | Sumber | File | Baris | Komentar | Kalimat |
 |---|---|---|---|---|
-| Reddit | `texts_reddit_full.jsonl` | 7061 | 3442 | 3619 |
-| YouTube | `texts_youtube_full.jsonl` | 2159 | 1054 | 1105 |
+| Reddit | `texts_reddit_full.jsonl` | 6994 | 3387 | 3607 |
+| YouTube | `texts_youtube_full.jsonl` | 1961 | 951 | 1010 |
 
 ## Aturan yang dipakai
 
@@ -36,9 +36,9 @@ untuk dua file masukan yang disebut di sini, bukan untuk run lain.
 
 | Yang dipertahankan | Baris |
 |---|---|
-| Reddit | 7061 |
-| YouTube | 2159 |
-| **Total** | **9220** |
+| Reddit | 6994 |
+| YouTube | 1961 |
+| **Total** | **8955** |
 
 **Tidak ada duplikat silang yang ditemukan.** Ini temuan, bukan
 kegagalan: komentar Reddit dan komentar YouTube hampir tidak pernah
@@ -52,12 +52,12 @@ apa pun. Fungsinya menunjukkan bahwa dedupe naif akan merusak data:
 
 | Pola | Reddit | YouTube |
 |---|---|---|
-| Baris | 7061 | 2159 |
-| Hash unik | 5792 | 1589 |
-| Hash dipakai lebih dari sekali | 1136 | 565 |
-| Hash dipakai lebih dari satu pemain | 330 | 11 |
-| Hash dipakai komentar **dan** kalimatnya | 831 | 556 |
-| Teks sama untuk pemain yang sama (dalam satu sumber) | 7 | 0 |
+| Baris | 6994 | 1961 |
+| Hash unik | 5708 | 1474 |
+| Hash dipakai lebih dari sekali | 1163 | 481 |
+| Hash dipakai lebih dari satu pemain | 307 | 10 |
+| Hash dipakai komentar **dan** kalimatnya | 877 | 474 |
+| Teks sama untuk pemain yang sama (dalam satu sumber) | 11 | 0 |
 
 `drop_duplicates('text_clean_hash')` akan menghapus semua baris pada dua
 baris tengah tabel itu — kalimat yang sah dan tautan pemain yang benar.

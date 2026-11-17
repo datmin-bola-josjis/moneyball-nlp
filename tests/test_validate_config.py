@@ -11,7 +11,7 @@ import copy
 
 import pytest
 
-from src.validate_config import load_config, validate
+from src.validate_config import check_numeric_cap, load_config, validate
 
 
 @pytest.fixture()
@@ -105,3 +105,39 @@ def test_seed_zero_is_accepted(base_config: dict) -> None:
     config["text_sample"]["random_seed"] = 0
 
     assert validate(config) == []
+
+
+# ---------------------------------------------------------- numeric cap (M5)
+
+
+def test_numeric_cap_missing_is_rejected(base_config: dict) -> None:
+    config = copy.deepcopy(base_config)
+    del config["output"]["numeric_cap"]
+
+    problems = validate(config)
+
+    assert any("numeric_cap" in p for p in problems)
+
+
+def test_numeric_cap_ratio_above_limit_is_rejected(base_config: dict) -> None:
+    config = copy.deepcopy(base_config)
+    config["output"]["numeric_cap"]["tier2_max_ratio"] = 0.40
+
+    problems = validate(config)
+
+    assert any("tier2_max_ratio" in p for p in problems)
+
+
+def test_player_summary_numeric_cap_boundary() -> None:
+    # 6/17 = 35.3% exceeds <= 35%, while 6/19 = 31.6% passes.
+    assert check_numeric_cap(6, 17, max_ratio=0.35, max_numeric_cols=6) != []
+    assert check_numeric_cap(6, 19, max_ratio=0.35, max_numeric_cols=6) == []
+    # 7 numeric columns fails max_numeric_cols=6 even when ratio <= 35%.
+    assert check_numeric_cap(7, 25, max_ratio=0.35, max_numeric_cols=6) != []
+
+
+def test_tier1_numeric_cap_boundary() -> None:
+    # 2/7 = 28.6% fails <= 20%, while 2/11 = 18.2% and 1/17 = 5.9% pass.
+    assert check_numeric_cap(2, 7, max_ratio=0.20) != []
+    assert check_numeric_cap(2, 11, max_ratio=0.20) == []
+    assert check_numeric_cap(1, 17, max_ratio=0.20) == []

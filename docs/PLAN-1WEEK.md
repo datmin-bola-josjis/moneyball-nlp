@@ -56,7 +56,7 @@ Semua orang menulis bagian laporannya sendiri, dan **semua ikut labeling**. Labe
 
 ## 4. Bentuk hasil yang dinilai
 
-Hasil utama: **laporan ala paper pendek (data mining)**. Dashboard Streamlit hanya bonus.
+Hasil utama (disepakati internal 2026-11-13, belum dikonfirmasi dosen): **demo dashboard ("Text-First, Number-Second") beserta laporan evaluasi CRISP-DM ringkas**. (`output.dashboard: true` di `config/config.yaml`; kode Stage F belum dibangun.)
 
 **Struktur laporan (alur CRISP-DM)**
 
@@ -70,7 +70,7 @@ Hasil utama: **laporan ala paper pendek (data mining)**. Dashboard Streamlit han
 
 Dosen data mining biasanya menilai proses dan evaluasi, bukan kecanggihan model. Bagian 3 dan 5 jangan dikorbankan demi visualisasi.
 
-**Dashboard (opsional):** tabel kandidat yang bisa difilter per posisi, scatter plot, detail per pemain. Kalau Hari 6 belum siap, cukup notebook dengan visual rapi.
+**Dashboard (target disepakati internal 2026-11-13):** fokus ke distribusi sentimen & 8 aspek, tabel kandidat dengan `evidence_level` (`bukti tidak cukup` dikeluarkan) + `top_aspects`, panel kutipan `text_clean`, scatter plot, dan badge validator (`rating_pos_zscore` / `rating_above_median`), tanpa memajang statistik per-90 mentah di halaman utama. Stack ditetapkan sebelum Stage F. Kalau waktu tidak cukup, fallback ke notebook dengan visual rapi.
 
 **Batas kelayakan minimum di akhir minggu**
 
@@ -144,7 +144,6 @@ Dosen data mining biasanya menilai proses dan evaluasi, bukan kecanggihan model.
 
 Dosen meminta bentuk apa: laporan tertulis, presentasi, atau demo dashboard?
 
-- Kalau **laporan**, dashboard bisa dibuang sepenuhnya dan waktunya dipakai untuk evaluasi yang lebih kuat — itu justru nilai tambah.
-- Kalau **demo**, dashboard minimal (tabel + scatter + filter posisi) dikerjakan Hari 6 pagi, bukan Hari 7.
-
-Jawab sebelum Hari 2. Jawabannya memindahkan beberapa jam kerja yang bisa menyelamatkan bagian evaluasi.
+- **Status per 2026-11-13:** Tim menyepakati secara internal **demo dashboard + laporan evaluasi ringkas** (`docs/decisions.md`), namun konfirmasi final dari dosen masih ditunggu.
+- Kalau **laporan**, dashboard bisa disederhanakan agar waktu dipakai untuk evaluasi yang lebih kuat.
+- Kalau **demo**, dashboard ("Text-First, Number-Second": tabel kandidat + scatter + aspek + kutipan `text_clean` + filter posisi) dikerjakan di Stage F dengan tetap menjaga evaluasi manual lengkap.
