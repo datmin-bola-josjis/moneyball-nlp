@@ -2,7 +2,9 @@
 
 Status: **kolektor komentar selesai dan sudah dijalankan penuh untuk 70 pemain.**
 Dedupe silang dengan Reddit juga sudah selesai (0 duplikat; lihat bagian Dedupe).
-Transkrip video **belum** diambil meskipun `include_transcript: true` ada di config.
+Kolektor transkrip **ada kodenya** sejak 2026-11-14, tetapi **belum pernah
+dijalankan penuh** — jadi angka cakupan transkrip belum ada dan tidak boleh
+dilaporkan sampai run-nya dilakukan.
 
 Dokumen ini menjelaskan apa yang diambil, keputusan yang diambil beserta angkanya,
 dan keterbatasan yang wajib masuk laporan. Semua angka di sini berasal dari
@@ -310,10 +312,22 @@ Tifo sekarang berada di bawah The Athletic, jadi video yang sama bisa muncul di 
 kanal. `text_clean_hash` mencegah teks yang identik dihitung dua kali, tetapi
 komentar yang berbeda pada video yang sama tetap bisa masuk dua kali.
 
-### 7. Transkrip belum diambil
+### 7. Transkrip: kode ada, run penuh belum
 
-`include_transcript: true` ada di config tetapi **belum diimplementasikan**. Jangan
-melaporkan cakupan transkrip dari modul ini.
+`include_transcript: true` kini benar-benar dibaca `src/scrape/youtube.py`
+(`transcript_client`, `records_from_transcript`). Empat hal yang harus dipahami
+sebelum mengutip angka apa pun:
+
+- Segmen transkrip ditulis sebagai `unit_type="sentence"`, bukan tipe baru, karena
+  PRD §8 mengunci `unit_type` ke `comment`/`sentence` dan Stage D hanya membaca
+  `sentence`. Data dengan tipe lain akan tersimpan tetapi tidak pernah dianalisis.
+- Transkrip adalah **orang lain berbicara** (komentator, podcaster), bukan komentar
+  penonton. Ini keterbatasan yang wajib disebut di laporan.
+- Video tanpa caption adalah hal normal. Alasan penolakan dihitung di `summary.json`
+  (`transcript.unavailable`), bukan dianggap error.
+- **Run penuh belum dijalankan**, jadi belum ada satu pun angka cakupan transkrip
+  yang sah. Jangan menulis "transkrip tercakup X%" dari modul ini sebelum
+  `make scrape-youtube` dijalankan ulang dengan flag aktif dan `summary.json` dibaca.
 
 ### 8. "Hidden gem" berarti *underrated*
 
