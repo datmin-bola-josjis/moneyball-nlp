@@ -1310,6 +1310,58 @@ class RelevanceTests(unittest.TestCase):
             self.assertFalse(stats["passed"])
             self.assertIn("BELUM LULUS", path.read_text(encoding="utf-8"))
 
+    def test_report_records_the_sheet_fingerprint(self):
+        """A report must say which sheet it scored.
+
+        The repository once carried a report claiming LULUS 94% from a sheet that
+        had already been replaced, and nothing in the file revealed the drift. The
+        fingerprint makes a stale report detectable instead of invisible.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            sheet = self._sheet(tmp, ["y"] * 90 + ["n"] * 10)
+            out = Path(tmp) / "report.md"
+            original = relevance.REPORT
+            relevance.REPORT = out
+            try:
+                path, stats = relevance.score_review(sheet)
+            finally:
+                relevance.REPORT = original
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("Sidik jari sampel", text)
+            self.assertIn(stats["fingerprint"], text)
+
+    def test_different_samples_get_different_fingerprints(self):
+        """Same numbers, different texts: the report must not look interchangeable."""
+        with tempfile.TemporaryDirectory() as tmp:
+            first = self._sheet(tmp, ["y"] * 90 + ["n"] * 10)
+            out = Path(tmp) / "report.md"
+            original_report, original_sheet = relevance.REPORT, relevance.REVIEW_CSV
+            relevance.REPORT = out
+            try:
+                _, stats_a = relevance.score_review(first)
+                # Second sheet: same labels, different text_ids.
+                other = Path(tmp) / "other.csv"
+                with other.open("w", encoding="utf-8", newline="") as fh:
+                    writer = csv.DictWriter(fh, fieldnames=relevance.FIELDS)
+                    writer.writeheader()
+                    for i, label in enumerate(["y"] * 90 + ["n"] * 10):
+                        writer.writerow(
+                            {
+                                "text_id": f"different{i}",
+                                "player_id": "p1",
+                                "subreddit": "NUFC",
+                                "created_at": "2025-09-01",
+                                "url": "",
+                                "text_clean": "Bruno G. was excellent",
+                                "relevant": label,
+                            }
+                        )
+                _, stats_b = relevance.score_review(other)
+            finally:
+                relevance.REPORT, relevance.REVIEW_CSV = original_report, original_sheet
+            self.assertAlmostEqual(stats_a["rate"], stats_b["rate"])
+            self.assertNotEqual(stats_a["fingerprint"], stats_b["fingerprint"])
+
     def _run_sampler(self, tmp, rows, n=100):
         """Call the real sampler against a temporary sheet, twice."""
         sheet = Path(tmp) / "review.csv"
