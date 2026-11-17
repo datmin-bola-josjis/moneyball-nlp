@@ -13,7 +13,7 @@ PYTHON ?= $(shell \
   else echo python; fi)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup venv check config sample metrics fetch-players lock-sample population scrape scrape-verify scrape-pilot scrape-arctic scrape-youtube cleaning review review-score labels-status link dedupe nlp score viz pipeline test clean
+.PHONY: help setup venv check config sample metrics fetch-players lock-sample population scrape scrape-verify scrape-pilot scrape-arctic scrape-youtube cleaning review review-score labels-status scrape-articles link dedupe nlp score viz pipeline test clean
 
 # pytest is preferred, but the suite is plain unittest, so a machine where
 # `make setup` has not run yet can still verify the code.
@@ -77,6 +77,9 @@ review-score: ## Stage B - score the filled review sheet into reports/retrieval_
 
 labels-status: ## Stage B - progress and format check for the three manual labelling sheets
 	$(PYTHON) -m src.scrape.labels
+
+scrape-articles: ## Stage B (bonus) - article paragraphs from whitelisted domains; disabled in config by default
+	$(PYTHON) -m src.scrape.article $(if $(PILOT),--pilot $(PILOT),) $(if $(URLS),--urls $(URLS),)
 
 link: ## Stage C - entity linking and text filtering
 	$(PYTHON) -m src.link.resolve

@@ -156,7 +156,7 @@ Lihat §10. Laporan ditulis mengikuti alur CRISP-DM (rincian di [`PLAN-1WEEK.md`
 
 **texts (`texts_deduped.parquet`, Tier 1 ≤ 20% kolom numerik — 17 kolom aktual, 1/17 = 5,9% numerik)**
 
-- `text_id`, `player_id`, `source` (`reddit`/`youtube`), `unit_type` (`comment`/`sentence`)
+- `text_id`, `player_id`, `source` (`reddit`/`youtube`/`article`), `unit_type` (`comment`/`sentence`)
 - `text_raw`, `text_clean`, `text_clean_hash`, `language`, `created_at`, `url`
 - `thread_id`, `subreddit`, `engagement` (1 kolom numerik opsional), `matched_alias`, `parent_text_id`, `channel`, `video_id`
 

@@ -207,6 +207,9 @@ text_sources:
   article:
     enabled: false
     min_name_mentions: 3
+    # Same floor as the other sources. Stage C reads this key for `article`
+    # rows instead of silently reusing the Reddit value (AGENTS.md rule 13).
+    min_words: 8
     domains:
     - theathletic.com
     - fifa.com
