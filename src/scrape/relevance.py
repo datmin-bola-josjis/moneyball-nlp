@@ -17,6 +17,7 @@ without disturbing either per-source figure.
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import logging
 import random
@@ -140,6 +141,19 @@ def _parse_label(value: str) -> bool | None:
     return None
 
 
+def sheet_fingerprint(rows: list[dict]) -> str:
+    """Stable id for the exact set of texts in a sheet.
+
+    A report is only true for the sheet it was scored from. When the sheet is
+    redrawn, the old numbers stay on disk looking authoritative - which is what
+    happened once already: `retrieval_relevance.md` claimed LULUS 94% from a
+    sheet that had since been replaced, and nothing in the file revealed it.
+    Recording the ids makes that drift detectable instead of invisible.
+    """
+    ids = sorted(str(row.get("text_id") or "") for row in rows)
+    return hashlib.sha256("\n".join(ids).encode("utf-8")).hexdigest()[:12]
+
+
 def score_review(
     path: Path | None = None,
     target: float = 0.85,
@@ -190,6 +204,7 @@ def score_review(
         status = "LULUS"
     else:
         status = "BELUM LULUS"
+    fingerprint = sheet_fingerprint(rows)
     lines = [
         f"# Relevansi Retrieval {SOURCE_LABELS.get(source, source)} (Tahap B)",
         "",
@@ -197,12 +212,14 @@ def score_review(
         f"- Relevan: **{relevant}**",
         f"- Relevansi: **{rate:.1%}** (target PRD §11: >= {target:.0%})",
         f"- Status: **{status}**",
+        f"- Sidik jari sampel: `{fingerprint}` (dari `{sheet.name}`)",
         "",
         "Cara sampel diambil: `random.sample` dengan seed `text_sample.random_seed` dari "
         "`config/config.yaml` — sampel acak seragam atas semua komentar di file "
         f"`texts_{source}_*.jsonl` yang dipakai. Seednya sama untuk semua anggota tim, jadi "
         "lembar yang sama bisa dibuat ulang. `LULUS` hanya diberikan bila minimal "
-        f"{min_labelled} teks dilabeli.",
+        f"{min_labelled} teks dilabeli. Sidik jari di atas berubah bila lembar ditarik "
+        "ulang, jadi angka di laporan ini hanya berlaku untuk lembar dengan sidik jari itu.",
         "",
         f"## Per {group_title}",
         "",
@@ -230,6 +247,7 @@ def score_review(
         "rate": rate,
         "failures": len(failures),
         "passed": passed,
+        "fingerprint": fingerprint,
     }
     log.info("relevance %.1f%% on %d labelled texts -> %s", rate * 100, len(done), report)
     return report, stats

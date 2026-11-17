@@ -1,11 +1,41 @@
 # Relevansi Retrieval Reddit (Tahap B)
 
-- Teks dilabeli: **100** dari 100 ditarik (0 kosong)
+> ## ⚠️ Status: SUPERSEDED — angka di bawah tidak berlaku untuk sampel sekarang
+>
+> Angka 94% di dokumen ini berasal dari **sampel yang sudah tidak dipakai**.
+> Laporan ditulis 2026-11-13 10:14 dari lembar berlabel; lembar penilaian
+> `data/interim/review_relevance.csv` kemudian **ditarik ulang** pada 15:32
+> (isi berbeda: 19 subreddit vs 9 di laporan ini), dan lembar baru itu
+> **0/100 terisi**. Sampai 2026-11-17, `make review-score` menolak dijalankan
+> pada lembar sekarang karena tidak ada satu pun label.
+>
+> **Dua alasan angka ini belum bisa dipakai sebagai bukti gate:**
+>
+> 1. **Dari sampel yang berbeda.** Komposisi subreddit laporan ini (r/NUFC 24,
+>    r/WWFC 22) tidak cocok dengan lembar di disk (WWFC 12, chelseafc 12).
+>    Angka 94% mengukur teks yang tidak lagi ada di lembar penilaian.
+> 2. **Labelnya berbantuan AI, bukan 4 anotator.** PRD §11 meminta "100 teks
+>    acak, dicek manual" dan "100 teks berlabel oleh 4 orang" untuk entity
+>    linking. Dokumen ini sendiri menyatakan label "diusulkan oleh Codex".
+>    Gate yang diukur dengan label model tidak mengukur kemampuan manusia
+>    membaca teks, jadi status `LULUS` di bawah **tidak boleh dikutip** sebagai
+>    gate yang lolos.
+>
+> **Yang berlaku sekarang:** gate relevansi **belum dijalankan** pada sampel
+> aktif. Lihat progres dengan `make labels-status`. Angka yang sah hanya
+> dihasilkan `make review-score` dari lembar yang terisi, dan laporan baru akan
+> mencantumkan **sidik jari sampel** sehingga ketidakcocokan seperti ini
+> terlihat langsung alih-alih tersembunyi.
+>
+> Dokumen ini dipertahankan, bukan dihapus, karena menghapusnya akan
+> menghilangkan jejak bahwa klaim pernah dibuat dan pernah keliru.
+
+- Teks dilabeli: **100** dari 100 ditarik (0 kosong) — *sampel lama, lihat peringatan di atas*
 - Relevan: **94**
 - Relevansi: **94.0%** (target PRD §11: >= 85%)
-- Status: **LULUS**
+- Status: ~~**LULUS**~~ → **BELUM BERLAKU** (lihat peringatan di atas)
 
-Label diusulkan oleh Codex setelah membaca setiap komentar dan disetujui oleh penanggung jawab sebelum disalin ke lembar penilaian. Hasil ini mengukur relevansi retrieval dengan label berbantuan AI.
+Label diusulkan oleh Codex setelah membaca setiap komentar dan disetujui oleh penanggung jawab sebelum disalin ke lembar penilaian. Hasil ini mengukur relevansi retrieval dengan label berbantuan AI. **Karena itu angka ini tidak memenuhi definisi gate PRD §11 dan tidak dipakai sebagai bukti.**
 
 Cara sampel diambil: `random.sample` dengan seed `text_sample.random_seed` dari `config/config.yaml` — sampel acak seragam atas semua komentar di file `texts_reddit_*.jsonl` yang dipakai. Seednya sama untuk semua anggota tim, jadi lembar yang sama bisa dibuat ulang. `LULUS` hanya diberikan bila minimal 100 teks dilabeli.
 
