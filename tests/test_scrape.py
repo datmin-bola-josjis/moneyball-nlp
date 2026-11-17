@@ -115,6 +115,17 @@ class AliasTests(unittest.TestCase):
         self.assertEqual(normalize("N'Golo Kanté"), "n'golo kante")
         self.assertEqual(normalize("O'Brien"), "o'brien")
 
+    def test_non_nfkd_transliteration_is_folded(self):
+        self.assertEqual(normalize("Martin Ødegaard"), "martin odegaard")
+        self.assertEqual(normalize("Jørgen Strand Larsen"), "jorgen strand larsen")
+        self.assertEqual(normalize("Pascal Groß"), "pascal gross")
+        jorgen = Player("p_jorgen", "Jørgen Strand Larsen", ("Jørgen Strand Larsen",), "Crystal Palace")
+        idx = AliasIndex.build([jorgen])
+        self.assertEqual(
+            idx.find_mentions("Jorgen Strand Larsen pressed well today", "p_jorgen"),
+            "Jørgen Strand Larsen",
+        )
+
     def test_possessive_does_not_block_a_mention(self):
         # "Saka's finishing" must still match the alias "Saka".
         self.assertEqual(normalize("Saka's finishing"), "saka finishing")

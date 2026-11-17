@@ -16,7 +16,23 @@ Baca [`docs/GAMBARAN-BESAR.md`](docs/GAMBARAN-BESAR.md) untuk versi ringkasnya.
 
 ## Status saat ini
 
-**Fase dokumentasi selesai, implementasi belum dimulai.** Belum ada satu baris kode pipeline — yang ada baru dokumen, config, dan scaffold folder kosong. Lihat [`README.md`](README.md) bagian Status untuk hal yang harus dikunci di Hari 1.
+**Tahap A selesai dan terverifikasi; Tahap B (Reddit) ditulis tapi belum pernah dijalankan penuh; Tahap C–F belum ada kodenya.**
+
+Yang sudah jalan:
+
+| Bagian | Bukti |
+|---|---|
+| Populasi + sampel terkunci (A) | 340 pemain, 20 klub; `data/processed/text_sample.parquet` 70 pemain |
+| Metrik numerik + z-score rating | 340 baris, 288 pemain punya z-score |
+| Test suite | `make test` → 306 passed |
+| Validasi config | `make config` → 12 sections, 20 clubs, source=fotmob |
+| Reddit retrieval (3 provider) | kode + test ada; full run 70 pemain selesai via Arctic Shift |
+| YouTube retrieval (komentar) | `make scrape-youtube` + `make cleaning` ada; transkrip & gate manusia belum |
+| Cross-source dedupe (Tahap C) | `make dedupe` (`src/link/dedupe.py`) ada; `src/link/resolve.py` belum |
+
+Yang belum ada: `src/link/resolve.py`, `src/nlp/`, `src/viz/` masih belum ada; `src/score/` baru separuh numerik. Tidak ada modul artikel maupun transkrip YouTube. `make pipeline` berhenti di `link`.
+
+Rincian status per area ada di [`README.md`](README.md) bagian Development Status.
 
 ## Struktur direktori
 
@@ -26,32 +42,42 @@ Baca [`docs/GAMBARAN-BESAR.md`](docs/GAMBARAN-BESAR.md) untuk versi ringkasnya.
 | `docs/PLAN-1WEEK.md` | Peran, jadwal 7 hari, struktur laporan CRISP-DM, struktur repo target |
 | `docs/GAMBARAN-BESAR.md` | Penjelasan ringkas untuk tim |
 | `docs/decisions.md` | Log setiap perubahan ambang + alasannya |
+| `docs/tahap-b-reddit.md` | Catatan akses Reddit: apa yang dicoba, apa yang ditolak, kenapa |
 | `config/config.yaml` | **Satu-satunya** file config — liga, musim, whitelist, ambang, kuota, sampling, seed |
+| `src/population/` | Tahap A: fetch FotMob, bangun populasi, sampling berstrata |
+| `src/scrape/` | Tahap B: klien HTTP, retrieval Reddit, alias, review relevansi |
+| `src/score/` | Metrik numerik dan z-score per posisi |
+| `src/link/` | Tahap C: `dedupe.py` (Reddit×YouTube) sudah ada; `resolve.py` belum ada |
+| `src/nlp/`, `src/viz/` | Tahap D, F — **masih kosong**, hanya `__init__.py` |
+| `data/processed/text_sample.parquet` | Sampel terkunci — **satu-satunya data yang masuk git** |
+| `tests/` | 306 test (`test_scrape.py`, `test_youtube*.py`, `test_dedupe.py`, dll.) |
 
 Jangan membuat file config kedua (mis. `config/sampling.yaml`). Parameter sampling masuk ke `config/config.yaml` di bawah kunci `text_sample`.
 
-Struktur target (belum dibuat) ada di §7 `docs/PLAN-1WEEK.md`.
-
 ## Perintah utama
 
-Scaffold sudah ada, tapi belum ada kode pipeline — target `make` untuk tiap tahap masih akan gagal sampai modulnya ditulis.
-
 ```bash
-make setup      # install dependencies (minta izin dulu, lihat stack di bawah)
+make check      # config + pytest; ini yang dipakai untuk verifikasi
 make config     # validasi config/config.yaml
-make test       # jalankan test suite
-make pipeline   # target akhir: data mentah -> output (belum bisa jalan)
+make test       # pytest saja
+make pipeline   # target akhir: data mentah -> output (BELUM BISA JALAN, lihat status)
 ```
 
-Lihat `Makefile` untuk daftar lengkap target per tahap (`population`, `scrape`, `link`, `nlp`, `score`, `viz`).
+Target per tahap yang **sudah punya kode**: `fetch-players`, `population`, `lock-sample`, `metrics`, `scrape`, `scrape-arctic`, `scrape-pilot`, `scrape-verify`, `review`, `review-score`.
+
+Target per tahap yang **belum punya modul** (akan gagal `ModuleNotFoundError`): `link` → `src.link.resolve`, `nlp` → `src.nlp.analyze`, `score` → `src.score.rank`, `viz` → `src.viz.report`.
 
 Aturan setup untuk anggota baru ada di [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-## Stack yang direncanakan
+## Stack
 
-Python 3.10+, `pandas`, `soccerdata`, `PRAW`, `youtube-transcript-api`, `trafilatura`, `rapidfuzz`, `spacy`, `transformers`, `vaderSentiment`, `scikit-learn`, `matplotlib`/`plotly`. Streamlit opsional.
+Python 3.10+ secara teori; terverifikasi jalan di **3.14.8**.
 
-Belum ada yang di-install. Jangan install tanpa persetujuan eksplisit.
+Yang benar-benar terpasang dan dipakai: `pandas`, `pyarrow`, `PyYAML`, `requests`, `python-dotenv`, `pytest`.
+
+Yang **dideklarasikan di `requirements.txt` tapi belum pernah diimpor kode**: `soccerdata`, `PRAW`, `youtube-transcript-api`, `google-api-python-client`, `trafilatura`, `rapidfuzz`, `spacy`, `vaderSentiment`, `scikit-learn`, `matplotlib`, `plotly`.
+
+Catatan penting: `requirements.txt` memaku `pandas>=2.2,<3.0`, sedangkan lingkungan yang terverifikasi memakai pandas 3.1.1. `make setup` di mesin baru akan memasang 2.3.x, dan suite belum diuji ulang di versi itu. Jangan install tanpa persetujuan eksplisit.
 
 ## Keputusan yang sudah final
 
@@ -64,7 +90,8 @@ Jangan diubah tanpa persetujuan tim + catatan di `docs/decisions.md`.
 | Sumber teks utama | Reddit + YouTube | Artikel bonus; X/Twitter dilewati |
 | Sentiment | VADER | HF hanya jika akurasi < 75% |
 | Aspek | kamus kata kunci | Bukan classifier terlatih |
-| Sumber rating | `fotmob` | **Sudah ditetapkan di `config/config.yaml:66`**, bukan dipilih ulang Hari 1 |
+| Sumber rating | `fotmob` | Tetapkan sekali: `validation.rating_source` di `config/config.yaml`, bukan dipilih ulang Hari 1. Satu sumber saja supaya z-score bermakna |
+| Sumber harga | `fotmob` (`playerData.marketValues`) | Transfermarkt **tidak bisa dipakai** (HTTP 405 di semua path); keputusan dan buktinya di `docs/decisions.md` |
 | Sofascore | tidak dipakai | Tidak dapat diakses |
 | Ditunda | BERTopic, filter playstyle, model aspek kustom | Future work, bukan scope 1 minggu |
 
@@ -78,7 +105,7 @@ Aturan ini berasal dari `docs/PRD.md` §17 dan sudah diperiksa berulang. Melangg
 4. **`player_id` internal adalah satu-satunya kunci join.** Dilarang join berdasarkan nama.
 5. **Data mentah terpisah dari data bersih.** `data/raw/` tidak pernah ditimpa.
 6. **Angka tidak boleh membentuk skor kualitas.** Skor kualitas hanya dari teks. Angka = harga + validator.
-7. **SoFIFA value/wage bukan harga pasar.** Hasil rumus EA, jangan dipakai sebagai target harga. Harga = market value Transfermarkt.
+7. **SoFIFA value/wage bukan harga pasar.** Hasil rumus EA, jangan dipakai sebagai target harga. Harga = market value dari **FotMob** (`playerData.marketValues`), karena Transfermarkt memblokir semua akses (HTTP 405). Lihat `docs/decisions.md` 2026-11-12.
 8. **Pemain dengan teks sedikit diberi label** `bukti tidak cukup` (< 10), `bukti terbatas` (10–29), `bukti cukup` (≥ 30). Jangan dinilai paksa. Pemain `bukti tidak cukup` **tidak boleh** masuk tabel kandidat.
 9. **Evaluasi dulu sebelum dipakai** — sentiment dan entity linking harus diuji pada sampel berlabel manual sebelum masuk analisis.
 10. **Setiap perubahan ambang dicatat** di `docs/decisions.md` beserta alasannya.
@@ -98,11 +125,11 @@ Aturan ini berasal dari `docs/PRD.md` §17 dan sudah diperiksa berulang. Melangg
 - **Scraper wajib punya:** rate limit **≥ 1 detik per request**, retry dengan exponential backoff, caching, User-Agent yang wajar, dan logging jumlah hasil per pemain (supaya scraping kosong ketahuan, bukan hilang tanpa error).
 - **Satu sumber rating saja** untuk validasi numerik. Mencampur FotMob dan FBref membuat z-score tidak bermakna.
 - **`search.list` YouTube mahal** — pakai `playlistItems.list`. Kuota harian bisa habis dalam beberapa query.
-- **Transfermarkt memblokir `requests` polos** (HTTP 405 + halaman verifikasi). Pakai `soccerdata` atau Playwright.
-- **Reddit memblokir request tanpa auth** (HTTP 403 ke curl). 403 bukan bukti subreddit tidak ada; verifikasi lewat API ber-auth. Kalau akses Reddit bermasalah, jangan mencari jalan memutar — laporkan dan alihkan ke YouTube + artikel.
-- **Gate pilot sebelum scraping penuh:** 20 pemain campuran bintang dan non-bintang, lalu cek manual 100 teks acak. Target relevansi retrieval ≥ 85%. Di bawah itu, perbaiki filter dulu.
-- **Kredensial lewat `.env`**, jangan pernah masuk kode, commit, atau dokumen. `.env` wajib ada di `.gitignore`.
-- **Dokumen berbahasa Indonesia.** Kode, nama variabel, dan komentar kode berbahasa Inggris.
+- **Transfermarkt tidak bisa dipakai sama sekali** — HTTP 405 di semua path termasuk homepage, dengan UA browser lengkap, dan `soccerdata` v2026.43.0 tidak punya modul Transfermarkt. Jangan ulangi percobaannya. Populasi dan harga diambil dari FotMob lewat `src/population/fetch_players.py`.
+- **Reddit memblokir request tanpa auth** (HTTP 403 ke curl, `old.reddit.com` membalas halaman palsu, RSS tanpa komentar). 403 bukan bukti subreddit tidak ada; verifikasi nama subreddit harus lewat API ber-auth. Kalau akses Reddit resmi bermasalah, jangan mencari jalan pintas: laporkan, lalu pakai jalur yang sudah diputuskan tim — Arctic Shift (arsip pihak ketiga, tanpa kredensial) — atau alihkan ke YouTube + artikel. Jalur Apify **ditolak** dan dinonaktifkan di config; jangan aktifkan kembali tanpa keputusan tim tertulis di `docs/decisions.md`.
+- **Gate pilot sebelum scraping penuh:** 20 pemain campuran bintang dan non-bintang, lalu cek manual 100 teks acak. Target relevansi retrieval ≥ 85%. Di bawah itu, perbaiki filter dulu. Per 2026-11-12 gate ini **belum pernah lolos**.
+- **Kredensial lewat `.env`**, jangan pernah masuk kode, commit, atau dokumen. `.env` wajib ada di `.gitignore`. Jalur Arctic Shift butuh nol kredensial, jadi kredensial Reddit yang belum ada bukan alasan untuk berhenti mengerjakan tahap teks.
+- **Dokumen berbahasa Indonesia.** Kode, nama variabel, komentar kode, dan pesan commit berbahasa Inggris. Satu pengecualian: `README.md` berbahasa Inggris karena itu file yang dibaca pihak luar (commit a1e8a0a).
 
 ## Aturan bahasa dan klaim
 
@@ -145,6 +172,19 @@ Kalau waktu tersisa, prioritasnya **evaluasi yang lebih kuat**, bukan fitur baru
 
 ## Sebelum melanjutkan pekerjaan
 
-1. Baca [`README.md`](README.md) bagian Status, lalu [`docs/PLAN-1WEEK.md`](docs/PLAN-1WEEK.md) untuk jadwal dan peran.
-2. Cek `docs/decisions.md` — jangan ulangi perubahan ambang yang sudah ditolak.
+1. Baca [`README.md`](README.md) bagian Development Status, lalu [`docs/PLAN-1WEEK.md`](docs/PLAN-1WEEK.md) untuk jadwal dan peran.
+2. Cek `docs/decisions.md` — jangan ulangi perubahan ambang yang sudah ditolak, dan jangan ulangi sumber data yang sudah terbukti mati.
 3. Jalankan `make config` dan `git status` untuk memverifikasi state nyata sebelum mengklaim sesuatu berjalan.
+
+## Jebakan yang sudah terbukti
+
+Kesalahan yang pernah memakan waktu; jangan diulang.
+
+- **`make population` dulunya menulis ulang `data/processed/players.parquet` sebelum sampling (BUG D — sudah diperbaiki).** Sekarang `players.parquet` baru ditulis setelah gate sampling lolos dengan semua 17 kolom (`price_quartile`, `stratum`, dan `in_text_sample` tetap dipertahankan dari `text_sample.parquet`). `text_sample.parquet` sendiri tidak pernah disentuh dry run.
+- **`posts/search` di Arctic Shift memotong di 100 hasil tanpa memberi tanda.** Untuk hitungan volume pakai `posts/search/aggregate`. Haaland tampak 100 thread padahal 602.
+- **Respons `comments/tree` berbentuk nested.** Menghitung hanya item top-level memberi 211 dari 770 komentar dan sempat disimpulkan "tree terpotong". Telusuri `data[].data.replies.data.children[]` rekursif.
+- **`"Timeout. Maybe slow down a bit"` dari Arctic Shift bukan timeout jaringan.** Muncul dengan latensi 1–4 detik dan query identik berhasil setelah dijeda; itu rate limit. Jeda adaptif, jangan naikkan timeout socket.
+- **HTTP 422 dari Arctic Shift RETRYABLE.** Yang permanen hanya 400/401/403/404.
+- **`arctic_shift_client.py` bukan probe.** Memindahkannya ke `experiments/` memutus `measure_volume.py` dan mengeluarkan 11 test dari suite. Dia infrastruktur, meski tidak dipanggil pipeline produksi.
+- **Pilot lama tidak bisa dipakai.** Payload pilot memakai `player_id` karangan (`p_bruno_g`) yang irisannya kosong dengan `fotmob_*`, dan satuannya tercampur (komentar + kalimat dihitung sebagai satu angka). Jalankan ulang dengan `text_sample.parquet`.
+- **Jangan simpulkan subreddit tidak ada dari HTTP 403.** Reddit membalas 403 untuk semua pemanggil tanpa auth, termasuk r/soccer.

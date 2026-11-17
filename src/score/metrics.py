@@ -25,6 +25,7 @@ future reader can re-run it rather than trust the name.
 from __future__ import annotations
 
 import logging
+import random
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal
@@ -35,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 STATS_DIR: Final[Path] = Path("data/raw/fotmob/stats")
 OUT_METRICS: Final[Path] = Path("data/processed/metrics_numeric.parquet")
+OUT_REPORT: Final[Path] = Path("reports/numeric_validation.md")
 
 SEMANTICS_VERIFIED_ON: Final[str] = "2026-11-12"
 
@@ -172,7 +174,266 @@ def rating_zscore_within_position(
     return result
 
 
-def validate_metrics(frame: pd.DataFrame) -> list[str]:
+def positional_percentiles(
+    frame: pd.DataFrame,
+    *,
+    rating_column: str = "avg_rating",
+    value_column: str = "market_value_eur",
+    group_column: str = "position_group",
+    minutes_column: str = "minutes",
+    min_minutes: int = 900,
+) -> pd.DataFrame:
+    """Compute within-position value/rating percentiles, rank, and median flag.
+
+    Unrated or below-threshold players keep ``pd.NA`` in ``rating_above_median``
+    rather than ``False``, so downstream candidate flagging never mistakes a
+    leaderboard coverage gap for poor performance.
+    """
+    out = frame.copy()
+    out["value_pos_percentile"] = pd.Series(index=frame.index, dtype="float64")
+    out["rating_pos_percentile"] = pd.Series(index=frame.index, dtype="float64")
+    out["rating_pos_rank"] = pd.Series(pd.NA, index=frame.index, dtype="Int64")
+    out["rating_above_median"] = pd.Series(pd.NA, index=frame.index, dtype="boolean")
+
+    if frame.empty or group_column not in frame.columns:
+        return out
+
+    for _, subset in frame.groupby(group_column, observed=True):
+        if value_column in frame.columns:
+            prices = subset[value_column].dropna()
+            if not prices.empty:
+                out.loc[prices.index, "value_pos_percentile"] = (
+                    prices.rank(method="average", pct=True) * 100.0
+                )
+
+        if rating_column in frame.columns:
+            eligible = (
+                subset[minutes_column] >= min_minutes
+                if minutes_column in frame.columns
+                else pd.Series(True, index=subset.index)
+            )
+            ratings = subset.loc[eligible, rating_column].dropna()
+            if not ratings.empty:
+                out.loc[ratings.index, "rating_pos_percentile"] = (
+                    ratings.rank(method="average", pct=True) * 100.0
+                )
+                out.loc[ratings.index, "rating_pos_rank"] = (
+                    ratings.rank(method="min", ascending=False).astype("Int64")
+                )
+                median_rating = float(ratings.median())
+                out.loc[ratings.index, "rating_above_median"] = (
+                    ratings > median_rating
+                ).astype("boolean")
+
+    return out
+
+
+def _bootstrap_quantile_ci(
+    values: list[float],
+    q: float,
+    *,
+    iterations: int,
+    seed: int,
+) -> tuple[float, float, float]:
+    """Return (point_estimate, ci_low_95, ci_high_95) for a sample quantile."""
+    if not values:
+        return float("nan"), float("nan"), float("nan")
+    series = pd.Series(values, dtype="float64")
+    point = float(series.quantile(q))
+    if len(values) < 2 or iterations <= 0:
+        return point, point, point
+
+    rng = random.Random(seed)
+    n = len(values)
+    estimates = sorted(
+        float(pd.Series(rng.choices(values, k=n), dtype="float64").quantile(q))
+        for _ in range(iterations)
+    )
+    low_idx = max(0, int(0.025 * len(estimates)))
+    high_idx = min(len(estimates) - 1, int(0.975 * len(estimates)))
+    return point, estimates[low_idx], estimates[high_idx]
+
+
+def positional_summary(
+    frame: pd.DataFrame,
+    *,
+    min_minutes: int = 900,
+    bootstrap_iterations: int = 1000,
+    seed: int = 20252026,
+    market_value_percentile: float = 40.0,
+) -> pd.DataFrame:
+    """Summarize positional medians, price cutoffs, and 95% bootstrap CIs (PRD §9)."""
+    rows: list[dict[str, object]] = []
+    if frame.empty or "position_group" not in frame.columns:
+        return pd.DataFrame()
+
+    order = ["GK", "DEF", "MID", "FWD"]
+    groups = [g for g in order if g in set(frame["position_group"].dropna())] + sorted(
+        g for g in set(frame["position_group"].dropna()) if g not in order
+    )
+
+    for pos_idx, group in enumerate(groups):
+        subset = frame[frame["position_group"] == group]
+        eligible = (
+            subset[subset["minutes"] >= min_minutes]
+            if "minutes" in subset.columns
+            else subset
+        )
+        ratings = (
+            eligible["avg_rating"].dropna().astype(float).tolist()
+            if "avg_rating" in eligible.columns
+            else []
+        )
+        prices = (
+            subset["market_value_eur"].dropna().astype(float).tolist()
+            if "market_value_eur" in subset.columns
+            else []
+        )
+
+        r_med, r_lo, r_hi = _bootstrap_quantile_ci(
+            ratings, 0.5, iterations=bootstrap_iterations, seed=seed + pos_idx * 2
+        )
+        v_p40, v_lo, v_hi = _bootstrap_quantile_ci(
+            prices,
+            market_value_percentile / 100.0,
+            iterations=bootstrap_iterations,
+            seed=seed + pos_idx * 2 + 1,
+        )
+
+        in_sample = (
+            subset[subset["in_text_sample"].fillna(False)]
+            if "in_text_sample" in subset.columns
+            else subset.iloc[0:0]
+        )
+        sample_rated = (
+            int(in_sample["avg_rating"].notna().sum())
+            if "avg_rating" in in_sample.columns
+            else 0
+        )
+
+        rows.append(
+            {
+                "position_group": group,
+                "n_players": len(subset),
+                "n_rated": len(ratings),
+                "n_unrated": len(subset) - len(ratings),
+                "rating_median": r_med,
+                "rating_median_ci_low": r_lo,
+                "rating_median_ci_high": r_hi,
+                "value_p40": v_p40,
+                "value_p40_ci_low": v_lo,
+                "value_p40_ci_high": v_hi,
+                "n_sample": len(in_sample),
+                "n_sample_rated": sample_rated,
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def write_numeric_validation_report(
+    frame: pd.DataFrame,
+    summary: pd.DataFrame,
+    *,
+    path: Path = OUT_REPORT,
+    min_minutes: int = 900,
+    bootstrap_iterations: int = 1000,
+) -> Path:
+    """Write Stage A/E numeric benchmark & coverage report for Stage E/F."""
+    n_total = len(frame)
+    n_rated = int(frame["avg_rating"].notna().sum()) if "avg_rating" in frame.columns else 0
+    n_priced = (
+        int(frame["market_value_eur"].notna().sum())
+        if "market_value_eur" in frame.columns
+        else 0
+    )
+    in_sample = (
+        frame[frame["in_text_sample"].fillna(False)]
+        if "in_text_sample" in frame.columns
+        else frame.iloc[0:0]
+    )
+    sample_rated = (
+        int(in_sample["avg_rating"].notna().sum())
+        if "avg_rating" in in_sample.columns
+        else 0
+    )
+
+    lines = [
+        "# Validasi Numerik & Tolok Ukur Posisi (Tahap A/E)",
+        "",
+        f"Dihasilkan otomatis oleh `src/score/run_metrics.py` (ambang menit >= **{min_minutes}**, "
+        f"bootstrap **{bootstrap_iterations}x**).",
+        "",
+        "## Cakupan Data",
+        "",
+        f"- Populasi total: **{n_total}** pemain",
+        f"- Market value FotMob tersedia: **{n_priced}/{n_total}**",
+        f"- Rating FotMob (`stats/rating.json`) tersedia: **{n_rated}/{n_total}** "
+        f"({n_total - n_rated} pemain tidak masuk papan peringkat leaderboard FotMob)",
+        f"- Sampel teks terkunci: **{len(in_sample)}** pemain "
+        f"(**{sample_rated}/{len(in_sample)}** memiliki rating di `rating.json`)",
+        "",
+        "> **Catatan bias cakupan leaderboard:** kolom *Median Rating (95% CI)* dihitung hanya dari "
+        f"pemain yang memiliki entri di `rating.json` (**{n_rated}/{n_total}**), yang umumnya memiliki menit main "
+        "lebih tinggi daripada pemain tanpa rating. Untuk posisi dengan *n* kecil (mis. GK, *n* = 20 rated), "
+        "interval kepercayaan bootstrap harga dan rating melebar secara alami.",
+        "",
+        "## Ringkasan per Posisi (dengan Interval Kepercayaan Bootstrap 95%)",
+        "",
+        "| Posisi | Pemain | Punya Rating | Sampel (Rated) | Median Rating (95% CI) | P40 Harga EUR (95% CI) |",
+        "|---|---|---|---|---|---|",
+    ]
+    for _, row in summary.iterrows():
+        r_str = (
+            f"{row['rating_median']:.2f} ({row['rating_median_ci_low']:.2f}–{row['rating_median_ci_high']:.2f})"
+            if pd.notna(row["rating_median"])
+            else "—"
+        )
+        v_str = (
+            f"€{row['value_p40']/1e6:.2f}M (€{row['value_p40_ci_low']/1e6:.2f}M–€{row['value_p40_ci_high']/1e6:.2f}M)"
+            if pd.notna(row["value_p40"])
+            else "—"
+        )
+        lines.append(
+            f"| {row['position_group']} | {int(row['n_players'])} | {int(row['n_rated'])} | "
+            f"{int(row['n_sample'])} ({int(row['n_sample_rated'])}) | {r_str} | {v_str} |"
+        )
+
+    unrated_sample = (
+        in_sample[in_sample["avg_rating"].isna()]
+        if "avg_rating" in in_sample.columns
+        else in_sample.iloc[0:0]
+    )
+    lines += [
+        "",
+        "## Pemain Sampel Tanpa Rating di `rating.json`",
+        "",
+        "Pemain di bawah ini tidak tercantum di leaderboard `leagueseasondeepstats` (`rating.json`), "
+        "sehingga `rating_above_median` bernilai `<NA>` (bukan `False`). Stage E wajib memperlakukannya "
+        "sebagai tidak tervalidasi rating, bukan otomatis di bawah median.",
+        "",
+    ]
+    if unrated_sample.empty:
+        lines.append("- Tidak ada.")
+    else:
+        lines += [
+            "| player_id | Nama | Posisi | Klub | Menit | Harga (EUR) |",
+            "|---|---|---|---|---|---|",
+        ]
+        for _, r in unrated_sample.sort_values(["position_group", "minutes"], ascending=[True, False]).iterrows():
+            mv = f"€{r['market_value_eur']/1e6:.2f}M" if pd.notna(r.get("market_value_eur")) else "—"
+            lines.append(
+                f"| `{r['player_id']}` | {r['name_canonical']} | {r['position_group']} | "
+                f"{r['club']} | {int(r['minutes'])} | {mv} |"
+            )
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    logger.info("wrote numeric validation report -> %s", path)
+    return path
+
+
+def validate_metrics(frame: pd.DataFrame, *, min_minutes: int = 900) -> list[str]:
     """Check the metrics table before it is written. Empty list means OK."""
     problems: list[str] = []
 
@@ -185,9 +446,9 @@ def validate_metrics(frame: pd.DataFrame) -> list[str]:
         problems.append("player_id is not unique")
 
     if "minutes" in frame.columns:
-        under = int((frame["minutes"] < 900).sum())
+        under = int((frame["minutes"] < min_minutes).sum())
         if under:
-            problems.append(f"{under} players below the 900-minute threshold")
+            problems.append(f"{under} players below the {min_minutes}-minute threshold")
 
     if "avg_rating" in frame.columns:
         ratings = frame["avg_rating"].dropna()

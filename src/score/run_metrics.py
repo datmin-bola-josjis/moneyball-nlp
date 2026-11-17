@@ -19,8 +19,11 @@ from src.score.metrics import (
     KNOWN_COVERAGE_LIMITS,
     OUT_METRICS,
     build_metrics,
+    positional_percentiles,
+    positional_summary,
     rating_zscore_within_position,
     validate_metrics,
+    write_numeric_validation_report,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,6 +44,10 @@ def main() -> int:
     min_for_rating = int(
         (config.get("validation") or {}).get("min_minutes_for_rating", 900)
     )
+    thresholds_cfg = config.get("thresholds") or {}
+    bootstrap_iters = int(thresholds_cfg.get("bootstrap_iterations", 1000))
+    mv_pct = float(thresholds_cfg.get("market_value_percentile", 40))
+    seed = int((config.get("text_sample") or {}).get("random_seed", 20252026))
 
     population = pd.read_parquet(POPULATION)
     frame = build_metrics(population)
@@ -48,6 +55,7 @@ def main() -> int:
     frame["rating_pos_zscore"] = rating_zscore_within_position(
         frame, min_minutes=min_for_rating
     )
+    frame = positional_percentiles(frame, min_minutes=min_for_rating)
 
     coverage = {
         column: int(frame[column].notna().sum())
@@ -63,7 +71,7 @@ def main() -> int:
     for stat, note in KNOWN_COVERAGE_LIMITS.items():
         logger.info("known limit for %s: %s", stat, note)
 
-    problems = validate_metrics(frame)
+    problems = validate_metrics(frame, min_minutes=min_minutes)
     if problems:
         logger.error("metrics gate FAILED, nothing written:")
         for problem in problems:
@@ -82,6 +90,20 @@ def main() -> int:
     OUT_METRICS.parent.mkdir(parents=True, exist_ok=True)
     frame.to_parquet(OUT_METRICS, index=False)
     logger.info("wrote %d rows to %s", len(frame), OUT_METRICS)
+
+    summary = positional_summary(
+        frame,
+        min_minutes=min_for_rating,
+        bootstrap_iterations=bootstrap_iters,
+        seed=seed,
+        market_value_percentile=mv_pct,
+    )
+    write_numeric_validation_report(
+        frame,
+        summary,
+        min_minutes=min_for_rating,
+        bootstrap_iterations=bootstrap_iters,
+    )
 
     zscore_covered = int(frame["rating_pos_zscore"].notna().sum())
     logger.info("rating z-score available for %d players", zscore_covered)

@@ -207,3 +207,26 @@ def test_no_collision_leaves_aliases_untouched() -> None:
 
     assert removed == {}
     assert "Salah" in records[0].name_aliases
+
+
+def test_build_record_respects_custom_season_and_league() -> None:
+    from src.population.build import build_record
+
+    # Default 2025/26 season picks 200 (2025-10) and rejects 300 (2026-09).
+    default_rec = build_record(minutes_row(), payload())
+    assert default_rec is not None
+    assert default_rec.market_value_eur == 200.0
+
+    rec = build_record(
+        minutes_row(),
+        payload(),
+        season_start=date(2026, 7, 1),
+        season_end=date(2027, 5, 31),
+        league="Championship",
+        season="2026/27",
+    )
+
+    assert rec is not None
+    assert rec.league == "Championship"
+    assert rec.season == "2026/27"
+    assert rec.market_value_eur == 300.0

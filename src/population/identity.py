@@ -178,6 +178,17 @@ def generate_aliases(full_name: str) -> list[str]:
     if given and family:
         candidates.append(f"{given} {family[0]}.")
 
+    # Compound surnames without particles ("Bruun Larsen", "Smith Rowe", "Mac Allister"):
+    # split_name keeps only the final token, so add the two-word surname explicitly.
+    all_parts = [p for p in folded.split(" ") if p]
+    if (
+        len(all_parts) >= 3
+        and family
+        and " " not in family
+        and all_parts[-2].casefold() not in NAME_PARTICLES
+    ):
+        candidates.append(f"{all_parts[-2]} {all_parts[-1]}")
+
     # Individual words of a compound surname: "Nilsson Lindelof".
     # A surname that contains a particle is left whole, because splitting
     # "van Dijk" yields "Dijk", which matches the wrong player in a thread.

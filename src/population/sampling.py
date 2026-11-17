@@ -230,9 +230,11 @@ def stratified_sample(
 
 def _rng(seed: int, stratum: str):  # noqa: ANN201
     """Per-stratum RNG so adding a stratum does not reshuffle the others."""
+    import hashlib
     import random
 
-    mixed = hash((seed, stratum)) & 0xFFFFFFFF
+    digest = hashlib.blake2b(f"{seed}:{stratum}".encode("utf-8"), digest_size=8).digest()
+    mixed = int.from_bytes(digest, "big")
     return random.Random(mixed)
 
 

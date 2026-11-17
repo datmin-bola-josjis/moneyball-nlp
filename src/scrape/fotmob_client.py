@@ -13,6 +13,7 @@ if it dies halfway, the next run only fetches what is missing.
 
 from __future__ import annotations
 
+import http.client
 import json
 import logging
 import time
@@ -148,7 +149,7 @@ class FotMobClient:
                     attempt + 1,
                     MAX_RETRIES,
                 )
-            except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+            except (URLError, TimeoutError, json.JSONDecodeError, http.client.HTTPException) as exc:
                 last_error = exc
                 logger.warning(
                     "request failed on %s (attempt %d/%d): %s",
