@@ -16,21 +16,22 @@ Baca [`docs/GAMBARAN-BESAR.md`](docs/GAMBARAN-BESAR.md) untuk versi ringkasnya.
 
 ## Status saat ini
 
-**Tahap A selesai dan terverifikasi; Tahap B (Reddit) ditulis tapi belum pernah dijalankan penuh; Tahap C–F belum ada kodenya.**
+**Tahap A selesai dan terverifikasi; Tahap B (Reddit + YouTube) punya kode dan sudah dijalankan penuh; Tahap C baru sampai cross-source dedupe — entity linking, NLP, skoring teks, dan visualisasi belum ada di repo.**
 
-Yang sudah jalan:
+Yang sudah jalan (semua ini ada di `main`):
 
 | Bagian | Bukti |
 |---|---|
 | Populasi + sampel terkunci (A) | 340 pemain, 20 klub; `data/processed/text_sample.parquet` 70 pemain |
 | Metrik numerik + z-score rating | 340 baris, 288 pemain punya z-score |
-| Test suite | `make test` → 306 passed |
+| Test suite | `make test` → 309 passed, 1 skipped |
 | Validasi config | `make config` → 12 sections, 20 clubs, source=fotmob |
 | Reddit retrieval (3 provider) | kode + test ada; full run 70 pemain selesai via Arctic Shift |
-| YouTube retrieval (komentar) | `make scrape-youtube` + `make cleaning` ada; transkrip & gate manusia belum |
-| Cross-source dedupe (Tahap C) | `make dedupe` (`src/link/dedupe.py`) ada; `src/link/resolve.py` belum |
+| YouTube retrieval (komentar) | `make scrape-youtube` + `make cleaning` ada; full run 951 komentar sudah jalan |
+| Cross-source dedupe (Tahap C) | `make dedupe` (`src/link/dedupe.py`) ada |
+| Batas kolom numerik | `check_numeric_cap()` di `src/validate_config.py` + test batas & negatif |
 
-Yang belum ada: `src/link/resolve.py`, `src/nlp/`, `src/viz/` masih belum ada; `src/score/` baru separuh numerik. Tidak ada modul artikel maupun transkrip YouTube. `make pipeline` berhenti di `link`.
+Yang belum ada di repo: `src/link/resolve.py` (entity linking), `src/nlp/analyze.py`, `src/score/rank.py`, dan `src/viz/report.py`; `src/score/` baru berisi metrik numerik. Modul artikel belum ada (`output.dashboard: true` dan `output.numeric_cap` sudah ada di config, tapi belum ada kode yang membangkitkan dashboard). Transkrip YouTube juga belum — lihat [`docs/tahap-b-youtube.md`](docs/tahap-b-youtube.md). `make pipeline` masih berhenti di `link`.
 
 Rincian status per area ada di [`README.md`](README.md) bagian Development Status.
 
@@ -50,7 +51,7 @@ Rincian status per area ada di [`README.md`](README.md) bagian Development Statu
 | `src/link/` | Tahap C: `dedupe.py` (Reddit×YouTube) sudah ada; `resolve.py` belum ada |
 | `src/nlp/`, `src/viz/` | Tahap D, F — **masih kosong**, hanya `__init__.py` |
 | `data/processed/text_sample.parquet` | Sampel terkunci — **satu-satunya data yang masuk git** |
-| `tests/` | 306 test (`test_scrape.py`, `test_youtube*.py`, `test_dedupe.py`, dll.) |
+| `tests/` | 309 test + 1 skipped (`test_scrape.py`, `test_youtube*.py`, `test_dedupe.py`, dll.) |
 
 Jangan membuat file config kedua (mis. `config/sampling.yaml`). Parameter sampling masuk ke `config/config.yaml` di bawah kunci `text_sample`.
 
@@ -63,7 +64,7 @@ make test       # pytest saja
 make pipeline   # target akhir: data mentah -> output (BELUM BISA JALAN, lihat status)
 ```
 
-Target per tahap yang **sudah punya kode**: `fetch-players`, `population`, `lock-sample`, `metrics`, `scrape`, `scrape-arctic`, `scrape-pilot`, `scrape-verify`, `review`, `review-score`.
+Target per tahap yang **sudah punya kode**: `fetch-players`, `population`, `lock-sample`, `metrics`, `scrape`, `scrape-arctic`, `scrape-youtube`, `cleaning`, `scrape-pilot`, `scrape-verify`, `review`, `review-score`, `dedupe`.
 
 Target per tahap yang **belum punya modul** (akan gagal `ModuleNotFoundError`): `link` → `src.link.resolve`, `nlp` → `src.nlp.analyze`, `score` → `src.score.rank`, `viz` → `src.viz.report`.
 
