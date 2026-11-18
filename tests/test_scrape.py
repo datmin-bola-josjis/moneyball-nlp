@@ -1310,6 +1310,32 @@ class RelevanceTests(unittest.TestCase):
             self.assertFalse(stats["passed"])
             self.assertIn("BELUM LULUS", path.read_text(encoding="utf-8"))
 
+    def test_sheet_carries_player_name_so_it_can_be_judged(self):
+        """A sheet of opaque fotmob ids cannot be labelled.
+
+        The gate stalled because answering "is this text about this player?"
+        required opening the URL for every row. Identity is joined on
+        `player_id` (rule 4) and copied into the sheet as read-only context.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            rows = [
+                {"text_id": f"t{i}", "player_id": "fotmob_215168", "subreddit": "fulhamfc",
+                 "created_at": "2025-09-01", "url": "", "text_clean": "Leno was superb",
+                 "unit_type": "comment"}
+                for i in range(3)
+            ]
+            sheet = Path(tmp) / "review.csv"
+            original_texts, original_csv = relevance._texts, relevance.REVIEW_CSV
+            relevance._texts = lambda tag=None: rows
+            relevance.REVIEW_CSV = sheet
+            try:
+                path = relevance.sample_for_review(n=3)
+            finally:
+                relevance._texts, relevance.REVIEW_CSV = original_texts, original_csv
+            header = path.read_text(encoding="utf-8").splitlines()[0]
+            self.assertIn("player_name", header)
+            self.assertIn("club", header)
+
     def test_report_records_the_sheet_fingerprint(self):
         """A report must say which sheet it scored.
 

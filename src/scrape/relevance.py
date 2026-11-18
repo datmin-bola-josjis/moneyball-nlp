@@ -30,7 +30,20 @@ log = logging.getLogger("relevance")
 INTERIM = ROOT / "data" / "interim"
 REVIEW_CSV = INTERIM / "review_relevance.csv"
 REPORT = ROOT / "reports" / "retrieval_relevance.md"
-FIELDS = ["text_id", "player_id", "subreddit", "created_at", "url", "text_clean", "relevant"]
+# `player_name`/`club` are not decoration: a labeller cannot answer "is this text
+# about this player?" from an opaque `fotmob_123` id, and opening 100 URLs by hand
+# to find out is why the gate stalled. They are read-only context, never scored.
+FIELDS = [
+    "text_id",
+    "player_id",
+    "player_name",
+    "club",
+    "subreddit",
+    "created_at",
+    "url",
+    "text_clean",
+    "relevant",
+]
 
 SOURCES = ("reddit", "youtube", "all")
 SOURCE_LABELS = {"reddit": "Reddit", "youtube": "YouTube", "all": "Reddit + YouTube"}
@@ -86,6 +99,41 @@ def _texts(tag: str | None = None, source: str = "reddit") -> list[dict]:
     return [r for r in rows if r.get("unit_type") == "comment"]
 
 
+def _with_player_identity(
+    rows: list[dict], source: str, tag: str | None = None
+) -> list[dict]:
+    """Attach `player_name` and `club` so the sheet can be judged without the repo.
+
+    The join is on `player_id`, never on a name (AGENTS.md rule 4). Identity comes
+    from the locked sample rather than from the scraped payload, because the
+    payload is text-only and a name typed into a sheet by hand would be a second
+    source of truth.
+
+    When the sample file is absent (a checkout that has only scraped texts) the
+    columns are left blank rather than guessed: a wrong name next to unfamiliar
+    prose is worse than no name, because it primes the labeller.
+    """
+    names: dict[str, tuple[str, str]] = {}
+    sample = ROOT / "data" / "processed" / "text_sample.parquet"
+    if sample.exists():
+        try:
+            import pandas as pd
+
+            frame = pd.read_parquet(sample, columns=["player_id", "name_canonical", "club"])
+            names = {
+                str(row.player_id): (str(row.name_canonical or ""), str(row.club or ""))
+                for row in frame.itertuples(index=False)
+            }
+        except Exception as exc:  # a broken sample must not block the gate
+            log.warning("could not read player identity from %s: %s", sample.name, exc)
+
+    out: list[dict] = []
+    for row in rows:
+        name, club = names.get(str(row.get("player_id") or ""), ("", ""))
+        out.append({**row, "player_name": name, "club": club})
+    return out
+
+
 def sample_for_review(n: int = 100, tag: str | None = None, source: str = "reddit") -> Path:
     """Draw `n` texts with `random.sample` and the seed from config.
 
@@ -121,6 +169,7 @@ def sample_for_review(n: int = 100, tag: str | None = None, source: str = "reddi
 
     seed = int(load_config()["text_sample"]["random_seed"])
     picked = random.Random(seed).sample(rows, min(n, len(rows)))
+    picked = _with_player_identity(picked, source, tag)
 
     sheet.parent.mkdir(parents=True, exist_ok=True)
     with sheet.open("w", encoding="utf-8", newline="") as fh:
