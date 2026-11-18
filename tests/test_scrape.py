@@ -1310,6 +1310,38 @@ class RelevanceTests(unittest.TestCase):
             self.assertFalse(stats["passed"])
             self.assertIn("BELUM LULUS", path.read_text(encoding="utf-8"))
 
+    def test_identity_is_joined_by_id_and_blank_when_unavailable(self):
+        """Two promises: the join is on `player_id`, and absence is blank.
+
+        A wrong name beside unfamiliar prose primes the labeller toward a wrong
+        answer, which is worse than an empty cell. And joining by name would
+        break rule 4, so both halves are asserted rather than assumed.
+        """
+        rows = [
+            {"text_id": "t1", "player_id": "fotmob_258269", "player_name": "", "club": ""},
+            {"text_id": "t2", "player_id": "fotmob_unknown", "player_name": "", "club": ""},
+        ]
+        original_root = relevance.ROOT
+        try:
+            # Case A: sample present -> real values come from it, by id.
+            relevance.ROOT = Path(__file__).resolve().parents[1]
+            filled = relevance._with_player_identity(rows, "reddit")
+            saka = next(r for r in filled if r["text_id"] == "t1")
+            self.assertTrue(
+                saka["player_name"], "a known player_id must resolve to a name"
+            )
+            unknown = next(r for r in filled if r["text_id"] == "t2")
+            self.assertEqual(unknown["player_name"], "", "an unknown id must not be guessed")
+
+            # Case B: no sample file -> every identity stays blank, no crash.
+            with tempfile.TemporaryDirectory() as tmp:
+                relevance.ROOT = Path(tmp)
+                blank = relevance._with_player_identity(rows, "reddit")
+            self.assertTrue(all(r["player_name"] == "" for r in blank))
+            self.assertTrue(all(r["club"] == "" for r in blank))
+        finally:
+            relevance.ROOT = original_root
+
     def test_fingerprint_changes_when_the_text_behind_an_id_changes(self):
         """Hashing ids alone would miss the case that matters most.
 

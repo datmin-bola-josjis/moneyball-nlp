@@ -39,6 +39,11 @@ Label diusulkan oleh Codex setelah membaca setiap komentar dan disetujui oleh pe
 
 Cara sampel diambil: `random.sample` dengan seed `text_sample.random_seed` dari `config/config.yaml` — sampel acak seragam atas semua komentar di file `texts_reddit_*.jsonl` yang dipakai. Seednya sama untuk semua anggota tim, jadi lembar yang sama bisa dibuat ulang. `LULUS` hanya diberikan bila minimal 100 teks dilabeli.
 
+> **Tabel ini dari sampel lama dan tidak boleh dipakai sebagai angka gate.**
+> Komposisinya (9 subreddit, r/NUFC 24, r/WWFC 22) berbeda dari lembar yang
+> berlaku sekarang (19 subreddit, WWFC 12, chelseafc 12). Dipertahankan hanya
+> sebagai catatan run 2026-11-13.
+
 ## Per subreddit
 
 | Subreddit | Dilabeli | Relevan | Relevansi |
