@@ -1310,6 +1310,56 @@ class RelevanceTests(unittest.TestCase):
             self.assertFalse(stats["passed"])
             self.assertIn("BELUM LULUS", path.read_text(encoding="utf-8"))
 
+    def test_identity_is_joined_by_id_and_blank_when_unavailable(self):
+        """Two promises: the join is on `player_id`, and absence is blank.
+
+        A wrong name beside unfamiliar prose primes the labeller toward a wrong
+        answer, which is worse than an empty cell. And joining by name would
+        break rule 4, so both halves are asserted rather than assumed.
+        """
+        rows = [
+            {"text_id": "t1", "player_id": "fotmob_258269", "player_name": "", "club": ""},
+            {"text_id": "t2", "player_id": "fotmob_unknown", "player_name": "", "club": ""},
+        ]
+        original_root = relevance.ROOT
+        try:
+            # Case A: sample present -> real values come from it, by id.
+            relevance.ROOT = Path(__file__).resolve().parents[1]
+            filled = relevance._with_player_identity(rows, "reddit")
+            saka = next(r for r in filled if r["text_id"] == "t1")
+            self.assertTrue(
+                saka["player_name"], "a known player_id must resolve to a name"
+            )
+            unknown = next(r for r in filled if r["text_id"] == "t2")
+            self.assertEqual(unknown["player_name"], "", "an unknown id must not be guessed")
+
+            # Case B: no sample file -> every identity stays blank, no crash.
+            with tempfile.TemporaryDirectory() as tmp:
+                relevance.ROOT = Path(tmp)
+                blank = relevance._with_player_identity(rows, "reddit")
+            self.assertTrue(all(r["player_name"] == "" for r in blank))
+            self.assertTrue(all(r["club"] == "" for r in blank))
+        finally:
+            relevance.ROOT = original_root
+
+    def test_fingerprint_changes_when_the_text_behind_an_id_changes(self):
+        """Hashing ids alone would miss the case that matters most.
+
+        A re-scrape can keep an id while the prose behind it changes (an edited
+        comment, a reused id). A fingerprint over ids only would call that the
+        same sheet and let a stale report look current.
+        """
+        before = [{"text_id": "t1", "text_clean": "Leno was superb"}]
+        after = [{"text_id": "t1", "text_clean": "Leno was appalling"}]
+
+        self.assertNotEqual(
+            relevance.sheet_fingerprint(before), relevance.sheet_fingerprint(after)
+        )
+        self.assertEqual(
+            relevance.sheet_fingerprint(before),
+            relevance.sheet_fingerprint([{"text_id": "t1", "text_clean": "Leno was superb"}]),
+        )
+
     def test_sheet_carries_player_name_so_it_can_be_judged(self):
         """A sheet of opaque fotmob ids cannot be labelled.
 
