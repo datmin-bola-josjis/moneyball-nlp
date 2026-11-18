@@ -191,16 +191,23 @@ def _parse_label(value: str) -> bool | None:
 
 
 def sheet_fingerprint(rows: list[dict]) -> str:
-    """Stable id for the exact set of texts in a sheet.
+    """Stable id for the exact rows a report was scored from.
 
     A report is only true for the sheet it was scored from. When the sheet is
     redrawn, the old numbers stay on disk looking authoritative - which is what
     happened once already: `retrieval_relevance.md` claimed LULUS 94% from a
     sheet that had since been replaced, and nothing in the file revealed it.
-    Recording the ids makes that drift detectable instead of invisible.
+
+    The hash covers each row's id *and* its text, sorted by id. Hashing ids alone
+    would miss the case that matters most for a labelling sheet: the same id
+    pointing at different prose, which is exactly what a re-scrape produces when
+    a comment is edited or an id scheme is reused.
     """
-    ids = sorted(str(row.get("text_id") or "") for row in rows)
-    return hashlib.sha256("\n".join(ids).encode("utf-8")).hexdigest()[:12]
+    payload = "\n".join(
+        f"{row.get('text_id') or ''}\x00{row.get('text_clean') or ''}"
+        for row in sorted(rows, key=lambda r: str(r.get("text_id") or ""))
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
 def score_review(

@@ -1310,6 +1310,24 @@ class RelevanceTests(unittest.TestCase):
             self.assertFalse(stats["passed"])
             self.assertIn("BELUM LULUS", path.read_text(encoding="utf-8"))
 
+    def test_fingerprint_changes_when_the_text_behind_an_id_changes(self):
+        """Hashing ids alone would miss the case that matters most.
+
+        A re-scrape can keep an id while the prose behind it changes (an edited
+        comment, a reused id). A fingerprint over ids only would call that the
+        same sheet and let a stale report look current.
+        """
+        before = [{"text_id": "t1", "text_clean": "Leno was superb"}]
+        after = [{"text_id": "t1", "text_clean": "Leno was appalling"}]
+
+        self.assertNotEqual(
+            relevance.sheet_fingerprint(before), relevance.sheet_fingerprint(after)
+        )
+        self.assertEqual(
+            relevance.sheet_fingerprint(before),
+            relevance.sheet_fingerprint([{"text_id": "t1", "text_clean": "Leno was superb"}]),
+        )
+
     def test_sheet_carries_player_name_so_it_can_be_judged(self):
         """A sheet of opaque fotmob ids cannot be labelled.
 
