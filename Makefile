@@ -99,7 +99,37 @@ score: ## Stage E - text quality score, validation, candidate flagging
 viz: ## Stage F - figures and candidate table
 	$(PYTHON) -m src.viz.report
 
-pipeline: population scrape link nlp score viz ## Run the full pipeline end to end
+# `pipeline` runs the retrieval path the team actually uses. `scrape` (the OAuth
+# path) is deliberately not a prerequisite: Reddit closed self-service app
+# creation in Nov 2025 and there are no credentials, so chaining it killed the run
+# at Stage B before any later stage could be reached. `scrape-arctic` is the route
+# decided in docs/decisions.md (2026-11-12) and needs no credentials.
+# `scrape-articles` is excluded because that source is disabled in config and its
+# entry point exits non-zero on purpose.
+#
+# This is not a clean-clone guarantee. Two prerequisites still need external
+# state: `scrape-youtube` requires YOUTUBE_API_KEY in `.env`
+# (`src/scrape/youtube_client.api_key` raises SystemExit without it), and
+# `population` requires cached FotMob payloads from `make fetch-players`. YouTube
+# is a primary text source (AGENTS.md), so leaving it out would make the pipeline
+# fail to reproduce the corpus rather than make it self-contained.
+#
+# `dedupe` and `metrics` are prerequisites because later stages read what they
+# write: `link` reads `texts_deduped.parquet`, which only `dedupe` produces, and
+# `score` reads `metrics_numeric.parquet`, which only `metrics` produces. Without
+# them the pipeline silently consumed whatever stale copy was left on disk.
+PIPELINE_STAGES := population metrics scrape-arctic scrape-youtube dedupe link nlp score viz
+
+# The order above is a real dependency, not a preference, but `pipeline: $(...)
+# only expresses it to serial make: as plain prerequisites these nine targets are
+# siblings, and `make -j` would happily start `link` before `dedupe` finishes -
+# which is precisely the stale-parquet bug this ordering was meant to remove.
+# `.NOTPARALLEL` on this one target keeps the recipe serial under -j while the
+# other targets stay parallel. Verified: `make -j4 -n pipeline` lists the stages
+# in order only because of this line.
+.NOTPARALLEL: pipeline
+
+pipeline: $(PIPELINE_STAGES) ## Run the full pipeline end to end
 	@echo "pipeline complete"
 
 test: ## Run test suite

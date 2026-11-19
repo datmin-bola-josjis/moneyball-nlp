@@ -55,7 +55,7 @@ A player is flagged undervalued when the text quality score is at or above the 7
 | **E.** Scoring | Text Quality Score, evidence labels, candidate and overhyped flags. | `src/score/` | Only the numeric half exists |
 | **F.** Output | Candidate table, scatter plot, aspect heatmap by position. | `src/viz/` | Empty package |
 
-`make pipeline` chains all six and does not finish yet: it stops at the first empty stage. Per-stage targets exist so a failure is cheap to isolate.
+`make pipeline` chains all six stages. It uses the archive retrieval path (`scrape-arctic` for Reddit) instead of the OAuth one, and now runs `dedupe` and `metrics` before the stages that read their artifacts. It still stops at `link`, because the Stage C-F modules are not in the repository yet. Two prerequisites need external state, so this is not a clean-clone guarantee: `scrape-youtube` requires `YOUTUBE_API_KEY` in `.env`, and `population` requires cached FotMob payloads from `make fetch-players`. Per-stage targets exist so a failure is cheap to isolate.
 
 ---
 
@@ -87,7 +87,9 @@ make check              # config validation plus the test suite
 
 On a machine where the root filesystem is read-only, `pip install` into the user site-packages fails. Keep the virtualenv inside the repository, as above; the `Makefile` picks up `.venv/bin/python` automatically.
 
-At the time of writing this README, `make check` reports **306 passed** and `make config` reports `config ok: 12 sections, 20 clubs, source=fotmob`.
+At the time of writing this README, `make check` reports **378 passed** when run against only the tracked test files, and **402 passed** on a working copy that also holds the uncommitted Stage C-F modules and their tests. `make config` reports `config ok: 12 sections, 20 clubs, source=fotmob`.
+
+One test is conditionally skipped whenever `data/raw/fotmob/mins_played.json` is absent, which is the case on a fresh clone because the file is not tracked: `tests/test_positions.py::test_mapping_covers_every_code_in_real_data`. A fresh clone therefore reports 377 passed and 1 skipped. Reproduce the current figures with `.venv/bin/python -m pytest $(git ls-files tests/)` and `.venv/bin/python -m pytest` respectively.
 
 ---
 
@@ -247,7 +249,7 @@ The text sample covers 70 players rather than the whole league, so findings draw
 | Population and locking (Stage A) | **Implemented** | `make population`, `make lock-sample`; 340 players, 20 clubs, 70-player locked sample |
 | Numeric metrics and rating z-scores | **Implemented** | `make metrics`; 340 rows, 288 ratings z-scored |
 | Config validation | **Implemented** | `make config`; 12 sections, 20 clubs, source=fotmob |
-| Test suite | **Implemented** | `make test`; 306 passed |
+| Test suite | **Implemented** | `make test`; 378 passed on tracked test files, 402 on a working copy that also holds the uncommitted Stage C-F modules |
 | Reddit retrieval (three providers) | **Implemented**, no full run yet | Code, tests and a 20-player pilot are written; the relevance gate has not been passed |
 | Subreddit name verification | **Partial** | `make scrape-verify` needs OAuth credentials that do not exist yet |
 | Relevance review tooling | **Partial** | `make review`, `make review-score` and `make labels-status` exist; no labels have been collected yet |
@@ -258,7 +260,7 @@ The text sample covers 70 players rather than the whole league, so findings draw
 | Sentiment and aspects (Stage D) | **Not started** | `src/nlp/` is an empty package |
 | Text quality score and flags (Stage E) | **Not started** | Only the numeric half of `src/score/` exists |
 | Figures and candidate table (Stage F) | **Not started** | `src/viz/` is an empty package; `reports/figures/` is empty |
-| End-to-end pipeline | **Planned** | `make pipeline` stops at the first empty stage |
+| End-to-end pipeline | **Partial** | `make pipeline` now runs the credential-free retrieval path plus `dedupe` and `metrics`; it still stops at `link` until the Stage C-F modules are committed |
 
 ---
 
