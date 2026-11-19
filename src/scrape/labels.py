@@ -9,12 +9,19 @@ value the scorer will silently ignore.
 
 Two vocabularies are in play, and they are not identical. That is a real trap:
 
-  * ``src/scrape/relevance._parse_label`` accepts ``relevan``/``relevant`` and
-    ``tidak``/``not relevant`` in the relevance sheets.
+  * ``src/scrape/relevance._parse_label`` accepts
+    ``y/yes/1/true/relevan/relevant/ya`` and
+    ``n/no/0/false/tidak/not relevant`` in the relevance sheets.
   * ``src/nlp/analyze.score_eval_sheet`` accepts only
     ``y/yes/1/true/n/no/0/false`` for ``manual_link_ok``, so an annotator who
-    writes ``relevan`` in the eval sheet is scored as *unlabelled*, not as a
-    wrong answer.
+    writes ``relevan`` or ``ya`` in the eval sheet is scored as *unlabelled*, not
+    as a wrong answer.
+
+A third thing is not a vocabulary at all: ``ragu`` means the annotator read the
+row and could not decide. It is counted in its own tally (``uncertain_rows``)
+because it is neither a label nor an untouched row, and telling an annotator to
+go back and read a row they already answered is how a gate stalls on work that
+is already done.
 
 Rather than guess which one the annotator meant, this module reports the value
 as unusable and names the reason. A quiet reinterpretation would change a gate
@@ -43,9 +50,13 @@ REVIEW_YOUTUBE = ROOT / "data" / "interim" / "review_relevance_youtube.csv"
 EVAL_SHEET = ROOT / "data" / "interim" / "eval_linking_sentiment.csv"
 
 # Mirrors `relevance._parse_label`; `tests/test_labels.py` pins the equivalence
-# so the two cannot drift apart unnoticed.
-RELEVANCE_TRUE = frozenset({"y", "yes", "1", "true", "relevan", "relevant"})
+# so the two cannot drift apart unnoticed. Kept as module-level names rather than
+# imported from `relevance` because the pin is a test, not a runtime coupling:
+# if the two ever disagree, the test says which one moved.
+RELEVANCE_TRUE = frozenset({"y", "yes", "1", "true", "relevan", "relevant", "ya"})
 RELEVANCE_FALSE = frozenset({"n", "no", "0", "false", "tidak", "not relevant"})
+# An answered-but-undecided row. Not a label, but not an empty row either.
+RELEVANCE_UNCERTAIN = frozenset({"ragu", "ragu-ragu", "unsure", "unclear"})
 
 # The narrower set `analyze.score_eval_sheet` actually reads.
 EVAL_LINK_TRUE = frozenset({"y", "yes", "1", "true"})
@@ -77,6 +88,11 @@ class SheetStatus:
     exists: bool
     total: int = 0
     complete_rows: int = 0  # rows where every label column is usable
+    # Rows a human answered but marked undecided. Counted so the report can say
+    # "60 labelled, 3 ragu, 37 untouched" instead of burying the 3 in "40 left":
+    # an undecided row is work already done and a finding about the sample, and
+    # asking the annotator to look at it again is not the same as a missing shift.
+    uncertain_rows: int = 0
     # Which columns carry labels. Explicit rather than inferred from `name`, so
     # renaming a sheet cannot change how its progress is rendered.
     label_columns: tuple[str, ...] = ("relevant",)
@@ -127,6 +143,11 @@ def _classify(value: str, accepted: frozenset[str]) -> bool:
     return value.lower() in accepted
 
 
+def _is_uncertain(value: str, accepted: frozenset[str] = RELEVANCE_UNCERTAIN) -> bool:
+    """True when the annotator answered but could not decide."""
+    return value.strip().lower() in accepted
+
+
 def _missing_column(rows: list[dict[str, str]], column: str, path: Path) -> Problem:
     """A renamed/absent label column is a file problem, not an empty sheet.
 
@@ -161,6 +182,7 @@ def check_relevance_sheet(
         return status
     usable = 0
     complete = 0
+    uncertain = 0
     for position, row in enumerate(rows, start=1):
         value = _cell(row, column)
         if not value:
@@ -169,16 +191,23 @@ def check_relevance_sheet(
             usable += 1
             complete += 1
             continue
+        if _is_uncertain(value):
+            # Deliberately not a Problem: nothing here is malformed and there is
+            # nothing for the annotator to retype. It is a row the scorer cannot
+            # count, so it gets its own tally rather than a red flag.
+            uncertain += 1
+            continue
         status.problems.append(
             Problem(
                 row=position,
                 column=column,
                 value=value,
-                reason="expected y/n (yes/no/1/0/true/false/relevan/tidak)",
+                reason="expected y/n (yes/no/1/0/true/false/relevan/ya/tidak)",
             )
         )
     status.columns[column] = usable
     status.complete_rows = complete
+    status.uncertain_rows = uncertain
     return status
 
 
@@ -204,6 +233,7 @@ def check_eval_sheet(name: str, path: Path = EVAL_SHEET) -> SheetStatus:
             return status
     link_ok = 0
     sentiment_ok = 0
+    uncertain = 0
     slots: dict[str, int] = {}
 
     for position, row in enumerate(rows, start=1):
@@ -216,6 +246,20 @@ def check_eval_sheet(name: str, path: Path = EVAL_SHEET) -> SheetStatus:
             if _classify(link, EVAL_LINK_TRUE) or _classify(link, EVAL_LINK_FALSE):
                 link_ok += 1
                 link_usable = True
+            elif _is_uncertain(link):
+                # It is an answer, not a typo, so count it separately. Unlike the
+                # relevance scorer, the eval scorer accepts only y/n for this
+                # column; keep the sheet non-clean so `labels-status` cannot imply
+                # the evaluator will consume a row it actually ignores.
+                uncertain += 1
+                status.problems.append(
+                    Problem(
+                        position,
+                        "manual_link_ok",
+                        link,
+                        "marked unsure; eval scorer requires y/n and cannot score this row",
+                    )
+                )
             else:
                 # `relevan` is valid in the relevance sheets but not here; saying
                 # so is the difference between a fixable typo and a mystery zero.
@@ -252,6 +296,7 @@ def check_eval_sheet(name: str, path: Path = EVAL_SHEET) -> SheetStatus:
 
     status.columns["manual_link_ok"] = link_ok
     status.columns["manual_sentiment"] = sentiment_ok
+    status.uncertain_rows = uncertain
     status.per_slot = dict(sorted(slots.items()))
     return status
 
@@ -283,6 +328,8 @@ def render(statuses: list[SheetStatus]) -> str:
             )
         else:
             detail = f"{status.filled(status.label_columns[0])}/{status.total}"
+        if status.uncertain_rows:
+            detail += f" (+{status.uncertain_rows} ragu)"
         state = "ok" if status.is_clean else f"{len(status.problems)} bad cell(s)"
         lines.append(f"  {status.name:<26} {detail:<34} [{state}]")
         if status.per_slot:

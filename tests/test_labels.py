@@ -111,6 +111,67 @@ def test_every_accepted_relevance_value_matches_the_scorer() -> None:
         assert relevance._parse_label(value) is None
 
 
+def test_uncertain_vocabulary_matches_the_scorer_and_is_not_a_label() -> None:
+    """`ragu` is nobody's label, and both modules must agree on that.
+
+    It is answered-but-undecided: not usable for the rate, and not the same thing
+    as a blank row. If the two vocabularies drifted, one tool would report a row
+    as unfinished work while the other silently counted it as missing evidence.
+    """
+    for value in labels.RELEVANCE_UNCERTAIN:
+        assert relevance._parse_label(value) is None, "uncertain must never score"
+        assert relevance._is_uncertain(value) is True
+        assert labels._is_uncertain(value) is True
+
+    # The uncertain set must not overlap either decided set; otherwise a value
+    # would be both counted and excluded, and the rate would depend on order.
+    overlap = labels.RELEVANCE_UNCERTAIN & (
+        labels.RELEVANCE_TRUE | labels.RELEVANCE_FALSE
+    )
+    assert not overlap, f"decided and uncertain sets overlap: {sorted(overlap)}"
+
+
+def test_indonesian_yes_is_accepted_symmetrically(tmp_path: Path) -> None:
+    """`tidak` was accepted while `ya` was not, which read `ya` as a blank cell.
+
+    A sheet filled entirely in Indonesian therefore looked untouched: the gate
+    reported "belum dilabeli" for rows a human had already decided.
+    """
+    path = write_sheet(
+        tmp_path / "review.csv",
+        REVIEW_FIELDS,
+        [{"relevant": "ya"}, {"relevant": "tidak"}, {"relevant": "YA"}],
+    )
+
+    status = labels.check_relevance_sheet("Reddit", path)
+
+    assert status.filled("relevant") == 3
+    assert status.complete_rows == 3
+    assert status.is_clean
+
+
+def test_ragu_is_reported_separately_from_a_blank_row(tmp_path: Path) -> None:
+    """Boundary case: uncertain rows count as neither labelled nor untouched."""
+    path = write_sheet(
+        tmp_path / "review.csv",
+        REVIEW_FIELDS,
+        [
+            {"relevant": "y"},
+            {"relevant": "ragu"},
+            {"relevant": ""},
+        ],
+    )
+
+    status = labels.check_relevance_sheet("Reddit", path)
+
+    assert status.filled("relevant") == 1, "ragu must not reach the rate"
+    assert status.uncertain_rows == 1
+    assert status.total == 3
+    assert status.remaining == 2, "both the ragu row and the blank row still need work"
+    assert status.is_clean, "ragu is a valid answer, not a malformed cell"
+    assert "(+1 ragu)" in labels.render([status])
+
+
 # ----------------------------------------------------------------- eval sheet
 def test_eval_sheet_counts_both_columns(tmp_path: Path) -> None:
     path = write_sheet(
@@ -149,6 +210,36 @@ def test_eval_sheet_rejects_relevance_only_vocabulary(tmp_path: Path) -> None:
     assert status.filled("manual_link_ok") == 0
     assert len(status.problems) == 1
     assert "y/n" in status.problems[0].reason
+
+
+def test_ragu_is_treated_the_same_on_both_sheets(tmp_path: Path) -> None:
+    """`ragu` means the same thing whichever sheet the annotator writes it on.
+
+    The relevance sheets already accept it as answered-but-undecided and count it
+    in `uncertain_rows`. The eval sheet rejected it as a malformed cell, so the
+    same human answer was a clean "still in progress" on one sheet and a hard
+    error (labels-status exit 1) on the other. The dropdown that produced the
+    team's spreadsheets offers y/n/ragu on both, so the mismatch was reachable
+    by any annotator who followed the instructions.
+    """
+    rel = write_sheet(
+        tmp_path / "rel.csv", ["text_id", "relevant"], [{"text_id": "t1", "relevant": "ragu"}]
+    )
+    ev = write_sheet(
+        tmp_path / "eval.csv",
+        EVAL_FIELDS,
+        [{"annotator_slot": "A", "manual_link_ok": "ragu", "manual_sentiment": "positive"}],
+    )
+
+    rel_status = labels.check_relevance_sheet("Relevance", rel)
+    ev_status = labels.check_eval_sheet("Eval", ev)
+
+    assert rel_status.uncertain_rows == 1
+    assert ev_status.uncertain_rows == 1, "the eval sheet must count ragu too"
+    assert not ev_status.is_clean, "ragu is not a usable y/n label for the eval scorer"
+    assert any("cannot score this row" in problem.reason for problem in ev_status.problems)
+    assert ev_status.filled("manual_link_ok") == 0, "ragu must never reach the rate"
+    assert ev_status.complete_rows == 0, "a row with an undecided link is not complete"
 
 
 def test_eval_sheet_rejects_unknown_sentiment(tmp_path: Path) -> None:

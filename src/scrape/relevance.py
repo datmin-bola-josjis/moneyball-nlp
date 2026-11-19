@@ -48,6 +48,16 @@ FIELDS = [
 SOURCES = ("reddit", "youtube", "all")
 SOURCE_LABELS = {"reddit": "Reddit", "youtube": "YouTube", "all": "Reddit + YouTube"}
 
+# Both halves of the Indonesian pair are accepted. Accepting only `tidak` was an
+# asymmetry, not a decision: an annotator writing `ya` was silently treated as
+# blank, so a sheet that looked finished scored BELUM LULUS on a mystery gap.
+# `labels.py` mirrors these sets and `tests/test_labels.py` pins the equivalence.
+TRUE_LABELS = frozenset({"y", "yes", "1", "true", "relevan", "relevant", "ya"})
+FALSE_LABELS = frozenset({"n", "no", "0", "false", "tidak", "not relevant"})
+# Answering "undecided" is still an answer: it must never count toward the rate,
+# and it must never be confused with a row nobody opened.
+UNCERTAIN_LABELS = frozenset({"ragu", "ragu-ragu", "unsure", "unclear"})
+
 
 def review_csv(source: str = "reddit") -> Path:
     """Sheet path. Reddit keeps the original filename, so nothing existing moves."""
@@ -158,10 +168,12 @@ def sample_for_review(n: int = 100, tag: str | None = None, source: str = "reddi
     fields = FIELDS + (["channel"] if source != "reddit" else [])
 
     # Never destroy annotation work: a sheet with any label is not regenerated.
+    # `ragu` counts as work. Testing only `_parse_label` treated a sheet full of
+    # undecided rows as untouched and overwrote it.
     if sheet.exists():
         with sheet.open(encoding="utf-8", newline="") as fh:
             existing = list(csv.DictReader(fh))
-        if any(_parse_label(r.get("relevant", "")) is not None for r in existing):
+        if any(_has_label(r) for r in existing):
             raise SystemExit(
                 f"{sheet} already has labels. Move or delete it before drawing a "
                 "new sheet, so a filled gate is not silently emptied."
@@ -182,12 +194,34 @@ def sample_for_review(n: int = 100, tag: str | None = None, source: str = "reddi
 
 
 def _parse_label(value: str) -> bool | None:
+    """True/False for a decision, None for anything that is not one.
+
+    `ragu` is None on purpose: an undecided row is not evidence either way, so it
+    must never reach the rate. `_is_uncertain` tells it apart from a blank, which
+    matters because the two mean opposite things about the annotator's work.
+    """
     raw = (value or "").strip().lower()
-    if raw in {"y", "yes", "1", "true", "relevan", "relevant"}:
+    if raw in TRUE_LABELS:
         return True
-    if raw in {"n", "no", "0", "false", "tidak", "not relevant"}:
+    if raw in FALSE_LABELS:
         return False
     return None
+
+
+def _is_uncertain(value: str) -> bool:
+    """True when the annotator answered, but could not decide either way."""
+    return (value or "").strip().lower() in UNCERTAIN_LABELS
+
+
+def _has_label(row: dict) -> bool:
+    """True when a cell holds any human answer, decided or not.
+
+    Used by the redraw guard. Checking `_parse_label` alone treated a sheet full
+    of `ragu` as untouched and regenerated it, which would have destroyed the
+    annotator's work - the exact outcome the guard exists to prevent.
+    """
+    value = row.get("relevant", "")
+    return _parse_label(value) is not None or _is_uncertain(value)
 
 
 def sheet_fingerprint(rows: list[dict]) -> str:
@@ -222,6 +256,11 @@ def score_review(
     blank rows left in the sheet. A rate over a partly blank sheet is not the
     measurement the gate describes: the blanks are texts nobody read, and reading
     only the easy ones inflates the number.
+
+    Blank and `ragu` both block the pass, but they are reported separately. A
+    blank means nobody opened the row; `ragu` means a human read it and could not
+    decide, which is a finding about the sample, not a missing shift. Collapsing
+    the two hid the second one inside a "belum dilabeli" that was not true.
     """
     sheet = Path(path) if path else review_csv(source)
     report = report_path(source)
@@ -235,16 +274,27 @@ def score_review(
 
     labelled = [(r, _parse_label(r.get("relevant", ""))) for r in rows]
     done = [(r, ok) for r, ok in labelled if ok is not None]
-    skipped = len(labelled) - len(done)
+    # Counted from the raw cell, so a decided row is never also counted as uncertain.
+    uncertain = sum(1 for r, ok in labelled if ok is None and _is_uncertain(r.get("relevant", "")))
+    skipped = len(labelled) - len(done) - uncertain
     if not done:
+        if uncertain:
+            raise SystemExit(
+                f"{sheet} has no decided labels yet: {uncertain} row(s) say 'ragu'. "
+                "A row marked unsure is not evidence either way, so nothing can be "
+                "scored until those rows are settled. To start over instead, move or "
+                "delete the sheet and run `make review`; the redraw guard will not "
+                "overwrite a sheet that holds answers, not even undecided ones."
+            )
         raise SystemExit(
-            f"{sheet} has no labels yet. Fill the 'relevant' column with y/n, then rerun."
+            f"{sheet} has no labels yet. Fill the 'relevant' column with y/n "
+            "('ya'/'tidak' are accepted too), then rerun."
         )
 
     relevant = sum(1 for _, ok in done if ok)
     rate = relevant / len(done)
     enough = len(done) >= min_labelled
-    passed = enough and skipped == 0 and rate >= target
+    passed = enough and skipped == 0 and uncertain == 0 and rate >= target
 
     by_group: dict[str, list[bool]] = defaultdict(list)
     for row, ok in done:
@@ -252,19 +302,36 @@ def score_review(
         by_group[key].append(bool(ok))
 
     failures = [row for row, ok in done if not ok]
+    # The quorum branch names the shortfall, so it must also say how much of that
+    # shortfall is already read-but-undecided rather than untouched. Without the
+    # suffix, 95 labels + 5 `ragu` and 95 labels + 5 blanks printed the same
+    # line, and the annotator was told to do work they had already done.
     if not enough:
-        status = f"BELUM LULUS — baru {len(done)}/{min_labelled} teks dilabeli"
+        shortfall = []
+        if uncertain:
+            shortfall.append(f"{uncertain} sudah ditandai 'ragu'")
+        if skipped:
+            shortfall.append(f"{skipped} masih kosong")
+        tail = f" ({', '.join(shortfall)})" if shortfall else ""
+        status = f"BELUM LULUS — baru {len(done)}/{min_labelled} teks dilabeli{tail}"
     elif skipped:
-        status = f"BELUM LULUS — {skipped} teks belum dilabeli"
+        status = f"BELUM LULUS — {skipped} teks belum dilabeli" + (
+            f", {uncertain} ditandai 'ragu'" if uncertain else ""
+        )
+    elif uncertain:
+        status = f"BELUM LULUS — {uncertain} teks ditandai 'ragu' dan tidak dihitung"
     elif passed:
         status = "LULUS"
     else:
         status = "BELUM LULUS"
     fingerprint = sheet_fingerprint(rows)
+    # "0 kosong, 2 ragu" rather than a nested "(0 kosong (2 ragu))": the two counts
+    # are read together and a nested parenthetical hid the second one.
+    blanks = f"{skipped} kosong" + (f", {uncertain} ragu" if uncertain else "")
     lines = [
         f"# Relevansi Retrieval {SOURCE_LABELS.get(source, source)} (Tahap B)",
         "",
-        f"- Teks dilabeli: **{len(done)}** dari {len(rows)} ditarik ({skipped} kosong)",
+        f"- Teks dilabeli: **{len(done)}** dari {len(rows)} ditarik ({blanks})",
         f"- Relevan: **{relevant}**",
         f"- Relevansi: **{rate:.1%}** (target PRD §11: >= {target:.0%})",
         f"- Status: **{status}**",
@@ -304,6 +371,8 @@ def score_review(
         "failures": len(failures),
         "passed": passed,
         "fingerprint": fingerprint,
+        "uncertain": uncertain,
+        "skipped": skipped,
     }
     log.info("relevance %.1f%% on %d labelled texts -> %s", rate * 100, len(done), report)
     return report, stats

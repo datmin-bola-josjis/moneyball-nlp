@@ -1507,5 +1507,140 @@ class RelevanceTests(unittest.TestCase):
             self.assertFalse(stats["passed"])
             self.assertIn("BELUM LULUS", path.read_text(encoding="utf-8"))
 
+    def test_indonesian_yes_is_scored_not_skipped(self):
+        """`tidak` parsed while `ya` did not, so a sheet in Indonesian read as empty."""
+        with tempfile.TemporaryDirectory() as tmp:
+            sheet = self._sheet(tmp, ["ya"] * 90 + ["tidak"] * 10)
+            out = Path(tmp) / "report.md"
+            original = relevance.REPORT
+            relevance.REPORT = out
+            try:
+                path, stats = relevance.score_review(sheet)
+            finally:
+                relevance.REPORT = original
+            self.assertEqual(stats["labelled"], 100)
+            self.assertEqual(stats["skipped"], 0)
+            self.assertAlmostEqual(stats["rate"], 0.9)
+            self.assertTrue(stats["passed"])
+
+    def test_ragu_blocks_the_gate_without_being_called_unlabelled(self):
+        """One undecided row must stop `LULUS` even when the quorum is met.
+
+        101 rows: 100 decided (quorum reached, rate 100%) plus 1 `ragu`. The
+        quorum is deliberate - with only 99 decided rows the "not enough labels"
+        branch wins and the dedicated ragu status never runs, which is how this
+        case went untested the first time.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            sheet = self._sheet(tmp, ["y"] * 100 + ["ragu"])
+            out = Path(tmp) / "report.md"
+            original = relevance.REPORT
+            relevance.REPORT = out
+            try:
+                path, stats = relevance.score_review(sheet)
+            finally:
+                relevance.REPORT = original
+            text = path.read_text(encoding="utf-8")
+            self.assertEqual(stats["labelled"], 100, "ragu is not a label")
+            self.assertEqual(stats["uncertain"], 1)
+            self.assertEqual(stats["skipped"], 0, "ragu is not a blank row")
+            self.assertAlmostEqual(stats["rate"], 1.0)
+            self.assertFalse(
+                stats["passed"], "a perfect rate must not pass while a row is undecided"
+            )
+            self.assertIn("1 teks ditandai 'ragu' dan tidak dihitung", text)
+            self.assertNotIn("belum dilabeli", text)
+            self.assertIn("0 kosong, 1 ragu", text)
+
+    def test_sheet_of_only_ragu_fails_loudly_instead_of_scoring_zero(self):
+        """Negative case: no decided label at all is an error, not a 0% report.
+
+        Writing "0.0% relevant" here would look like a retrieval failure while
+        the truth is that nobody has decided anything yet.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            sheet = self._sheet(tmp, ["ragu"] * 10)
+            out = Path(tmp) / "report.md"
+            original = relevance.REPORT
+            relevance.REPORT = out
+            try:
+                with self.assertRaises(SystemExit) as caught:
+                    relevance.score_review(sheet)
+            finally:
+                relevance.REPORT = original
+            self.assertIn("ragu", str(caught.exception))
+            self.assertFalse(out.exists(), "no report may be written for an undecided sheet")
+
+    def test_shortfall_message_distinguishes_ragu_from_blank(self):
+        """Under the quorum, 5 `ragu` and 5 blanks must not print the same line.
+
+        Both block the gate, but only one of them means "go read these rows".
+        Telling an annotator "belum dilabeli" about rows they already answered is
+        how a gate stalls on work that is actually done.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "report.md"
+            original = relevance.REPORT
+            relevance.REPORT = out
+            try:
+                ragu_sheet = self._sheet(tmp, ["y"] * 95 + ["ragu"] * 5)
+                ragu_path, _ = relevance.score_review(ragu_sheet)
+                ragu_text = ragu_path.read_text(encoding="utf-8")
+
+                blank_sheet = Path(tmp) / "blank.csv"
+                with blank_sheet.open("w", encoding="utf-8", newline="") as fh:
+                    writer = csv.DictWriter(fh, fieldnames=relevance.FIELDS)
+                    writer.writeheader()
+                    for i, label in enumerate(["y"] * 95 + [""] * 5):
+                        writer.writerow(
+                            {
+                                "text_id": f"b{i}",
+                                "player_id": "p1",
+                                "subreddit": "NUFC",
+                                "created_at": "2025-09-01",
+                                "url": "",
+                                "text_clean": "Bruno G. was excellent",
+                                "relevant": label,
+                            }
+                        )
+                blank_path, _ = relevance.score_review(blank_sheet)
+                blank_text = blank_path.read_text(encoding="utf-8")
+            finally:
+                relevance.REPORT = original
+
+            self.assertIn("5 sudah ditandai 'ragu'", ragu_text)
+            self.assertNotIn("masih kosong", ragu_text)
+            self.assertIn("5 masih kosong", blank_text)
+            self.assertNotIn("ragu'", blank_text)
+
+    def test_redraw_guard_treats_ragu_as_work(self):
+        """A sheet full of undecided rows is not an empty sheet.
+
+        The guard used to test `_parse_label` only, so it regenerated a sheet whose
+        annotator had answered every row with `ragu` - erasing real work.
+        """
+        rows = [{"text_id": f"t{i}", "player_id": "p1", "unit_type": "comment"} for i in range(120)]
+        with tempfile.TemporaryDirectory() as tmp:
+            first, _ = self._run_sampler(tmp, rows)
+            self.assertEqual(len(first), 100)
+            sheet = Path(tmp) / "review.csv"
+            filled = list(csv.DictReader(sheet.open(encoding="utf-8")))
+            filled[0]["relevant"] = "ragu"
+            with sheet.open("w", encoding="utf-8", newline="") as fh:
+                writer = csv.DictWriter(fh, fieldnames=relevance.FIELDS)
+                writer.writeheader()
+                writer.writerows(filled)
+            original_texts, original_csv = relevance._texts, relevance.REVIEW_CSV
+            relevance._texts = lambda tag=None: rows
+            relevance.REVIEW_CSV = sheet
+            try:
+                with self.assertRaises(SystemExit):
+                    relevance.sample_for_review(n=100)
+            finally:
+                relevance._texts, relevance.REVIEW_CSV = original_texts, original_csv
+            kept = [r for r in csv.DictReader(sheet.open(encoding="utf-8"))
+                    if r["relevant"] == "ragu"]
+            self.assertEqual(len(kept), 1, "the ragu answer must survive the redraw attempt")
+
 if __name__ == "__main__":
     unittest.main()
