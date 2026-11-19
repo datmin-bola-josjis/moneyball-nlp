@@ -24,14 +24,14 @@ Yang sudah jalan (semua ini ada di `main`):
 |---|---|
 | Populasi + sampel terkunci (A) | 340 pemain, 20 klub; `data/processed/text_sample.parquet` 70 pemain |
 | Metrik numerik + z-score rating | 340 baris, 288 pemain punya z-score |
-| Test suite | `make test` → 309 passed, 1 skipped |
+| Test suite | `make check` → 402 passed di working tree ini; 378 passed bila hanya file test berstatus tracked yang dijalankan (`pytest $(git ls-files tests/)`); satu test bersyarat memerlukan `data/raw/fotmob/mins_played.json` |
 | Validasi config | `make config` → 12 sections, 20 clubs, source=fotmob |
 | Reddit retrieval (3 provider) | kode + test ada; full run 70 pemain selesai via Arctic Shift |
 | YouTube retrieval (komentar) | `make scrape-youtube` + `make cleaning` ada; full run 951 komentar sudah jalan |
 | Cross-source dedupe (Tahap C) | `make dedupe` (`src/link/dedupe.py`) ada |
 | Batas kolom numerik | `check_numeric_cap()` di `src/validate_config.py` + test batas & negatif |
 
-Yang belum ada di repo: `src/link/resolve.py` (entity linking), `src/nlp/analyze.py`, `src/score/rank.py`, dan `src/viz/report.py`; `src/score/` baru berisi metrik numerik. `output.dashboard: true` dan `output.numeric_cap` sudah ada di config, tapi belum ada kode yang membangkitkan dashboard. Transkrip YouTube (`src/scrape/youtube.py`) dan artikel (`src/scrape/article.py`) sudah ada kodenya tetapi transkrip belum pernah dijalankan penuh dan artikel masih `enabled: false` — lihat [`docs/tahap-b-youtube.md`](docs/tahap-b-youtube.md). `make pipeline` masih berhenti di `link`.
+Yang belum ada di repo: `src/link/resolve.py` (entity linking), `src/nlp/analyze.py`, `src/score/rank.py`, dan `src/viz/report.py`; `src/score/` baru berisi metrik numerik. `output.dashboard: true` dan `output.numeric_cap` sudah ada di config, tapi belum ada kode yang membangkitkan dashboard. Transkrip YouTube (`src/scrape/youtube.py`) dan artikel (`src/scrape/article.py`) sudah ada kodenya tetapi transkrip belum pernah dijalankan penuh dan artikel masih `enabled: false` — lihat [`docs/tahap-b-youtube.md`](docs/tahap-b-youtube.md). `make pipeline` sekarang memakai `scrape-arctic` (bukan `scrape`, yang butuh kredensial Reddit) dan menyertakan `dedupe` serta `metrics`, tetapi masih berhenti di `link` karena modul Role D belum masuk repo. Perlu dicatat: `scrape-youtube` tetap memerlukan `YOUTUBE_API_KEY` di `.env` dan `population` memerlukan cache FotMob, jadi `make pipeline` **bukan** jaminan jalan dari clone bersih.
 
 Rincian status per area ada di [`README.md`](README.md) bagian Development Status.
 
@@ -51,7 +51,7 @@ Rincian status per area ada di [`README.md`](README.md) bagian Development Statu
 | `src/link/` | Tahap C: `dedupe.py` (Reddit×YouTube) sudah ada; `resolve.py` belum ada |
 | `src/nlp/`, `src/viz/` | Tahap D, F — **masih kosong**, hanya `__init__.py` |
 | `data/processed/text_sample.parquet` | Sampel terkunci — **satu-satunya data yang masuk git** |
-| `tests/` | 309 test + 1 skipped (`test_scrape.py`, `test_youtube*.py`, `test_dedupe.py`, dll.) |
+| `tests/` | 378 test tracked, 402 di working tree dengan test Role D lokal (`test_scrape.py`, `test_youtube*.py`, `test_dedupe.py`, `test_pipeline_target.py`, dll.) |
 
 Jangan membuat file config kedua (mis. `config/sampling.yaml`). Parameter sampling masuk ke `config/config.yaml` di bawah kunci `text_sample`.
 
@@ -61,7 +61,7 @@ Jangan membuat file config kedua (mis. `config/sampling.yaml`). Parameter sampli
 make check      # config + pytest; ini yang dipakai untuk verifikasi
 make config     # validasi config/config.yaml
 make test       # pytest saja
-make pipeline   # target akhir: data mentah -> output (BELUM BISA JALAN, lihat status)
+make pipeline   # target akhir: data mentah -> output (berhenti di `link` sampai Role D masuk repo)
 ```
 
 Target per tahap yang **sudah punya kode**: `fetch-players`, `population`, `lock-sample`, `metrics`, `scrape`, `scrape-arctic`, `scrape-youtube`, `scrape-articles`, `cleaning`, `scrape-pilot`, `scrape-verify`, `review`, `review-score`, `labels-status`, `dedupe`.
