@@ -15,6 +15,7 @@ halfway keeps what it already paid for.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
@@ -95,12 +96,14 @@ class ArcticShiftClient:
         for key in sorted(params):
             parts.append(f"{key}={params[key]}")
         safe = "_".join(parts).replace("/", "-").replace(":", "").replace(" ", "")
-        if len(safe) > 180:  # stay well inside filesystem limits
-            import hashlib
-
-            digest = hashlib.sha256(safe.encode()).hexdigest()[:16]
-            safe = safe[:150] + "_" + digest
-        return self.cache_dir / f"{safe}.json"
+        # Cap the readable prefix so full cache paths stay under Windows'
+        # 260-char MAX_PATH; the SHA-256 digest preserves uniqueness.
+        digest = hashlib.sha256(
+            json.dumps([endpoint, params], sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()[:16]
+        prefix = safe[:60].rstrip("_")
+        stem = f"{prefix}_{digest}" if prefix else digest
+        return self.cache_dir / f"{stem}.json"
 
     def _wait(self) -> None:
         elapsed = time.monotonic() - self._last_request_at

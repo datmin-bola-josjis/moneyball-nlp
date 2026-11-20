@@ -174,7 +174,25 @@ def test_long_parameters_do_not_break_cache_path(cache: Path) -> None:
 
     files = list(cache.glob("*.json"))
     assert len(files) == 1
-    assert len(files[0].name) < 200
+    # Readable prefix (<= 60) + "_" + 16-char sha256 + ".json" <= 82 chars,
+    # keeping full paths comfortably under Windows' 260-char MAX_PATH.
+    assert len(files[0].name) <= 82
+
+
+def test_long_parameters_with_same_prefix_do_not_collide(cache: Path) -> None:
+    client = ScriptedClient(
+        [{"data": [{"id": "a"}]}, {"data": [{"id": "b"}]}],
+        cache_dir=cache,
+        start_delay=0.0,
+    )
+    shared_prefix = "x" * 200
+
+    first = client.get("posts/search", subreddit="soccer", query=shared_prefix + "a")
+    second = client.get("posts/search", subreddit="soccer", query=shared_prefix + "b")
+
+    assert first["data"] != second["data"]
+    assert client.calls == 2
+    assert len(list(cache.glob("*.json"))) == 2
 
 
 def test_corrupt_cache_entry_is_refetched(cache: Path) -> None:
