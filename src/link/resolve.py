@@ -18,12 +18,17 @@ Why a confidence at all (measured on texts_reddit_full.jsonl, 3,619 sentences):
   * ~31% of sentences list several people ("Murphy should go, Willock..."), so
     a sentence-level sentiment can belong to someone else.
 
+Input is `data/processed/texts_deduped.parquet` (Stage C dedupe across Reddit and
+YouTube, see reports/dedupe.md), not the per-source jsonl files. The old jsonl
+route read a Reddit-only file drawn from an earlier player sample, which dropped
+41 of the 70 locked players and left YouTube out.
+
 No sentence is dropped here by default (`link.min_confidence` = 0). A cut-off is
 a threshold, so it is chosen against the manual labels and recorded in
 docs/decisions.md (AGENTS.md rules 9 and 16). The weights below are first
 guesses to be calibrated against those labels, not measured constants.
 
-    python -m src.link.resolve [--tag full]
+    python -m src.link.resolve [--input PATH]
 """
 
 from __future__ import annotations
@@ -40,7 +45,7 @@ from src.config import ROOT, load_config
 from src.scrape.aliases import normalize
 
 log = logging.getLogger("link.resolve")
-INTERIM = ROOT / "data" / "interim"
+IN_FILE = ROOT / "data" / "processed" / "texts_deduped.parquet"
 OUT_FILE = ROOT / "data" / "processed" / "texts_linked.parquet"
 
 DEFAULTS = {
@@ -66,9 +71,19 @@ def source_group(source: str) -> str:
     raise ValueError(f"unknown text source {source!r}: add it to SOURCE_PRIORITY")
 
 
-def load_jsonl(paths: list[Path]) -> pd.DataFrame:
-    frames = [pd.read_json(p, lines=True, dtype=False) for p in paths]
-    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+REQUIRED_COLUMNS = {
+    "text_id", "player_id", "source", "unit_type", "text_clean",
+    "text_clean_hash", "matched_alias", "parent_text_id",
+}
+
+
+def load_texts(path: Path) -> pd.DataFrame:
+    """Read the deduped corpus and fail loudly if a column Stage C needs is missing."""
+    df = pd.read_parquet(path)
+    missing = REQUIRED_COLUMNS - set(df.columns)
+    if missing:
+        raise SystemExit(f"{path.name} lacks columns {sorted(missing)}")
+    return df
 
 
 def dedupe(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
@@ -203,7 +218,7 @@ def apply_min_confidence(df: pd.DataFrame, minimum: float) -> pd.DataFrame:
 # --------------------------------------------------------------------- run
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Stage C: dedupe and link confidence")
-    parser.add_argument("--tag", default="full", help="run tag, e.g. full or pilot20")
+    parser.add_argument("--input", default=str(IN_FILE), help="deduped corpus parquet")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)-7s %(name)s: %(message)s")
 
@@ -213,11 +228,11 @@ def main(argv: list[str] | None = None) -> int:
     cfg = load_config()
     params = {**DEFAULTS, **cfg.get("link", {})}
 
-    paths = sorted(INTERIM.glob(f"texts_*_{args.tag}.jsonl"))
-    if not paths:
-        raise SystemExit(f"no {INTERIM / f'texts_*_{args.tag}.jsonl'} - run Stage B/C first")
-    log.info("reading %s", ", ".join(p.name for p in paths))
-    df = load_jsonl(paths)
+    path = Path(args.input)
+    if not path.exists():
+        raise SystemExit(f"{path} not found - run `make dedupe` (Stage C) first")
+    df = load_texts(path)
+    log.info("reading %s (%d rows)", path.name, len(df))
     df["source_group"] = df["source"].map(source_group)
     log.info("rows by source: %s", df["source_group"].value_counts().to_dict())
     if "youtube" not in set(df["source_group"]):
